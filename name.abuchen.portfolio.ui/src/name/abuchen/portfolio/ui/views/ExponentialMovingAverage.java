@@ -10,28 +10,38 @@ import com.google.common.primitives.Doubles;
 
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityPrice;
+import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.views.SecuritiesChart.ChartInterval;
 
 public class ExponentialMovingAverage
 {
+    private boolean useBaseCurrency;
     private int rangeEMA;
     private double smoothingFactor;
     private Security security;
     private ChartInterval interval;
+    private CurrencyConverter converter;
     private ChartLineSeriesAxes result;
+    private boolean resultCalculated;
 
     public ExponentialMovingAverage(int rangeEMA, Security security, ChartInterval interval)
     {
+        this.resultCalculated = false;
         this.rangeEMA = rangeEMA;
         this.smoothingFactor = 2.0 / (this.rangeEMA + 1);
         this.security = security;
         this.interval = Objects.requireNonNull(interval);
 
         this.result = new ChartLineSeriesAxes();
+    }
 
-        calculateEMA();
+    public ExponentialMovingAverage(int rangeEMA, Security security, ChartInterval interval, boolean useBaseCurrency, CurrencyConverter converter)
+    {
+        this(rangeEMA, security, interval);
+        this.useBaseCurrency = useBaseCurrency;
+        this.converter = converter;
     }
 
     /**
@@ -42,6 +52,7 @@ public class ExponentialMovingAverage
      */
     public ChartLineSeriesAxes getEMA()
     {
+        ensureResultsCalculated();
         return this.result;
     }
 
@@ -74,6 +85,8 @@ public class ExponentialMovingAverage
         List<SecurityPrice> prices = security.getPricesIncludingLatest();
         if (prices == null)
             return;
+        if (useBaseCurrency)
+            prices = security.maybeConvertCurrency(converter, prices);
 
         int index = Collections.binarySearch(prices, new SecurityPrice(interval.getStart(), 0),
                         new SecurityPrice.ByDate());
@@ -107,5 +120,13 @@ public class ExponentialMovingAverage
 
         result.setDates(TimelineChart.toJavaUtilDate(datesEMA.toArray(new LocalDate[0])));
         result.setValues(Doubles.toArray(valuesEMA));
+    }
+
+    private void ensureResultsCalculated()
+    {
+        if (resultCalculated)
+            return;
+        calculateEMA();
+        this.resultCalculated = true;
     }
 }

@@ -5,6 +5,7 @@ import java.text.MessageFormat;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.time.Period;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -235,6 +236,7 @@ public class SecuritiesChart
         SHOW_MARKER_LINES(Messages.LabelChartDetailSettingsShowMarkerLines), //
         SHOW_DATA_LABELS(Messages.LabelChartDetailSettingsShowDataLabel), //
         SHOW_MISSING_TRADING_DAYS(Messages.LabelChartDetailSettingsShowMissingTradingDays), //
+        USE_BASE_CURRENCY(Messages.LabelChartDetailSettingsUseBaseCurrency), //
         SHOW_LIMITS(Messages.LabelChartDetailSettingsShowLimits);
 
         private final String label;
@@ -622,6 +624,7 @@ public class SecuritiesChart
         subMenuChartSettings.add(addMenuAction(ChartDetails.SHOW_MARKER_LINES));
         subMenuChartSettings.add(addMenuAction(ChartDetails.SHOW_DATA_LABELS));
         subMenuChartSettings.add(addMenuAction(ChartDetails.SHOW_MISSING_TRADING_DAYS));
+        subMenuChartSettings.add(addMenuAction(ChartDetails.USE_BASE_CURRENCY));
         manager.add(subMenuChartScaling);
         manager.add(subMenuChartDevelopment);
         manager.add(subMenuChartMarker);
@@ -729,6 +732,8 @@ public class SecuritiesChart
             // determine index range for given interval in prices list
 
             List<SecurityPrice> prices = security.getPricesIncludingLatest();
+            if (shouldUseBaseCurrency())
+                prices = security.maybeConvertCurrency(converter, prices);
 
             ChartRange range = ChartRange.createFor(prices, chartInterval);
             if (range == null)
@@ -832,6 +837,12 @@ public class SecuritiesChart
             yAxis2nd.enableLogScale(chartConfig.contains(ChartDetails.SCALING_LOG));
 
             yAxis1st.getTick().setVisible(true);
+
+            boolean shouldShowCurrencyCode = true;
+            // boolean shouldShowCurrencyCode = security.getCurrencyCode() != client.getBaseCurrency();
+            if (shouldShowCurrencyCode)
+                yAxis1st.getTitle().setText("[" + getChartCurrency() + "]");
+            yAxis1st.getTitle().setVisible(shouldShowCurrencyCode);
 
             if (chartConfig.contains(ChartDetails.SHOW_MISSING_TRADING_DAYS))
             {
@@ -968,14 +979,31 @@ public class SecuritiesChart
 
             String lineID = attributeName.get().getName() + " (" + limitAttribute.toString() + ")"; //$NON-NLS-1$ //$NON-NLS-2$
 
-            // horizontal line: only two points required
-            LocalDate[] dates = new LocalDate[2];
-            dates[0] = range.startDate;
-            dates[1] = range.endDate;
+            LocalDate[] dates;
+            double[] values;
+            if (security.getCurrencyCode() == getChartCurrency())
+            {
+                // horizontal line: only two points required
+                dates = new LocalDate[2];
+                dates[0] = range.startDate;
+                dates[1] = range.endDate;
 
-            // both points with same y-value
-            double[] values = new double[2];
-            values[0] = values[1] = limitAttribute.getValue() / Values.Quote.divider();
+                // both points with same y-value
+                values = new double[2];
+                values[0] = values[1] = limitAttribute.getValue() / Values.Quote.divider();
+            }
+            else
+            {
+                int nDays = (int) range.startDate.until(range.endDate, ChronoUnit.DAYS) + 1;
+                dates = new LocalDate[nDays];
+                values = new double[nDays];
+
+                for (int ii = 0; ii < nDays; ii++)
+                {
+                    dates[ii] = range.startDate.plusDays(ii);
+                    values[ii] = security.maybeConvertCurrency(converter, dates[ii], limitAttribute.getValue()) / Values.Quote.divider();
+                }
+            }
 
             ILineSeries lineSeriesLimit = (ILineSeries) chart.getSeriesSet().createSeries(SeriesType.LINE, lineID);
             lineSeriesLimit.setXDateSeries(TimelineChart.toJavaUtilDate(dates));
@@ -994,7 +1022,7 @@ public class SecuritiesChart
     private void addSMAMarkerLines(ChartInterval chartInterval, String smaSeries, String smaDaysWording, int smaDays,
                     Color smaColor)
     {
-        ChartLineSeriesAxes smaLines = new SimpleMovingAverage(smaDays, this.security, chartInterval).getSMA();
+        ChartLineSeriesAxes smaLines = new SimpleMovingAverage(smaDays, this.security, chartInterval, shouldUseBaseCurrency(), converter).getSMA();
         if (smaLines == null || smaLines.getValues() == null || smaLines.getDates() == null)
             return;
 
@@ -1016,7 +1044,7 @@ public class SecuritiesChart
     private void addEMAMarkerLines(ChartInterval chartInterval, String emaSeries, String emaDaysWording, int emaDays,
                     Color emaColor)
     {
-        ChartLineSeriesAxes emaLines = new ExponentialMovingAverage(emaDays, this.security, chartInterval).getEMA();
+        ChartLineSeriesAxes emaLines = new ExponentialMovingAverage(emaDays, this.security, chartInterval, shouldUseBaseCurrency(), converter).getEMA();
         if (emaLines == null || emaLines.getValues() == null || emaLines.getDates() == null)
             return;
 
@@ -1067,7 +1095,7 @@ public class SecuritiesChart
         {
             transactions.forEach(t -> {
                 String label = Values.Share.format(t.getType().isPurchase() ? t.getShares() : -t.getShares());
-                double value = t.getGrossPricePerShare(converter.with(t.getSecurity().getCurrencyCode())).getAmount()
+                double value = t.getGrossPricePerShare(converter.with(getChartCurrency())).getAmount()
                                 / Values.Quote.divider();
                 chart.addMarkerLine(t.getDateTime().toLocalDate(), color, label, value);
             });
@@ -1079,7 +1107,7 @@ public class SecuritiesChart
                             .collect(Collectors.toList()).toArray(new Date[0]);
 
             double[] values = transactions.stream().mapToDouble(
-                            t -> t.getGrossPricePerShare(converter.with(t.getSecurity().getCurrencyCode())).getAmount()
+                            t -> t.getGrossPricePerShare(converter.with(getChartCurrency())).getAmount()
                                             / Values.Quote.divider())
                             .toArray();
 
@@ -1270,11 +1298,15 @@ public class SecuritiesChart
 
     private void addExtremesMarkerLines(ChartInterval chartInterval)
     {
-        Optional<SecurityPrice> max = security.getPricesIncludingLatest().stream() //
+        List<SecurityPrice> prices = security.getPricesIncludingLatest();
+        if (shouldUseBaseCurrency())
+            prices = security.maybeConvertCurrency(converter, prices);
+
+        Optional<SecurityPrice> max = prices.stream() //
                         .filter(p -> chartInterval.contains(p.getDate())) //
                         .max(Comparator.comparing(SecurityPrice::getValue));
 
-        Optional<SecurityPrice> min = security.getPricesIncludingLatest().stream() //
+        Optional<SecurityPrice> min = prices.stream() //
                         .filter(p -> chartInterval.contains(p.getDate())) //
                         .min(Comparator.comparing(SecurityPrice::getValue));
 
@@ -1333,7 +1365,7 @@ public class SecuritiesChart
                     double bollingerBandsFactor)
     {
         BollingerBands bands = new BollingerBands(bollingerBandsDays, bollingerBandsFactor, this.security,
-                        chartInterval);
+                        chartInterval, shouldUseBaseCurrency(), converter);
 
         ChartLineSeriesAxes lowerBand = bands.getLowerBand();
         if (lowerBand == null || lowerBand.getValues() == null || lowerBand.getDates() == null)
@@ -1389,7 +1421,7 @@ public class SecuritiesChart
         // changes (i.e. all purchase and sell events)
 
         Client filteredClient = new ClientSecurityFilter(security).filter(client);
-        CurrencyConverter securityCurrency = converter.with(security.getCurrencyCode());
+        CurrencyConverter securityCurrency = converter.with(getChartCurrency());
 
         List<LocalDate> candidates = client.getPortfolios().stream() //
                         .flatMap(p -> p.getTransactions().stream()) //
@@ -1481,7 +1513,7 @@ public class SecuritiesChart
         // changes (i.e. all purchase and sell events)
 
         Client filteredClient = new ClientSecurityFilter(security).filter(client);
-        CurrencyConverter securityCurrency = converter.with(security.getCurrencyCode());
+        CurrencyConverter securityCurrency = converter.with(getChartCurrency());
 
         List<LocalDate> candidates = client.getPortfolios().stream() //
                         .flatMap(p -> p.getTransactions().stream()) //
@@ -1571,7 +1603,7 @@ public class SecuritiesChart
             return Optional.empty();
 
         return getPurchasePrice(new ClientSecurityFilter(security).filter(client),
-                        converter.with(security.getCurrencyCode()), LocalDate.now());
+                        converter.with(getChartCurrency()), LocalDate.now());
     }
 
     private Optional<Double> getPurchasePrice(Client filteredClient, CurrencyConverter currencyConverter,
@@ -1594,5 +1626,15 @@ public class SecuritiesChart
                         .getRecord(security) //
                         .filter(r -> !r.getFifoCostPerSharesHeld().isZero()) //
                         .map(r -> r.getMovingAverageCostPerSharesHeld().getAmount() / Values.Quote.divider());
+    }
+
+    private String getChartCurrency()
+    {
+        return shouldUseBaseCurrency() ? client.getBaseCurrency() : security.getCurrencyCode();
+    }
+
+    private boolean shouldUseBaseCurrency()
+    {
+        return chartConfig.contains(ChartDetails.USE_BASE_CURRENCY);
     }
 }

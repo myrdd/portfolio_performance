@@ -13,6 +13,7 @@ import com.google.common.primitives.Doubles;
 
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityPrice;
+import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.views.SecuritiesChart.ChartInterval;
@@ -21,6 +22,8 @@ public class BollingerBands
 
 {
     public static final int MIN_AVERAGE_PRICES_PER_WEEK = 2;
+
+    private boolean useBaseCurrency;
     private int BollingerBandsDays;
     private double BollingerBandsFactor;
     private Security security;
@@ -34,10 +37,13 @@ public class BollingerBands
     private List<Double> valuesBollingerBandsLowerBands;
     private List<Double> valuesBollingerBandsMiddleBands;
     private List<Double> valuesBollingerBandsUpperBands;
+    private CurrencyConverter converter;
+    private boolean resultCalculated;
 
     public BollingerBands(int BollingerBandsDays, double BollingerBandsFactor, Security security,
-                    ChartInterval interval)
+                    ChartInterval interval, boolean useBaseCurrency, CurrencyConverter converter)
     {
+        this.useBaseCurrency = useBaseCurrency;
         this.BollingerBandsDays = BollingerBandsDays;
         this.BollingerBandsFactor = BollingerBandsFactor;
         this.security = security;
@@ -49,6 +55,8 @@ public class BollingerBands
         this.valuesBollingerBandsLowerBands = new ArrayList<>();
         this.valuesBollingerBandsMiddleBands = new ArrayList<>();
         this.valuesBollingerBandsUpperBands = new ArrayList<>();
+        this.converter = converter;
+
         this.calculatedMinimumDays = getMinimumDaysForBollingerBands();
         this.calculateBollingerBands();
     }
@@ -90,6 +98,9 @@ public class BollingerBands
 
         if (prices == null || prices.size() < BollingerBandsDays + 3)
             return;
+
+        if (useBaseCurrency)
+            this.prices = security.maybeConvertCurrency(converter, prices);
 
         SecurityPrice startPrice = this.getStartPriceFromStartDate();
         // in case no valid start date could be determined, return null
@@ -208,5 +219,4 @@ public class BollingerBands
         return prices.stream().filter(p -> p.getDate().isAfter(isAfter) && p.getDate().isBefore(isBefore))
                         .collect(Collectors.toList());
     }
-
 }

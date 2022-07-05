@@ -10,26 +10,37 @@ import com.google.common.primitives.Doubles;
 
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityPrice;
+import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.util.chart.TimelineChart;
 import name.abuchen.portfolio.ui.views.SecuritiesChart.ChartInterval;
 
 public class SimpleMovingAverage
 {
+
+    private boolean useBaseCurrency;
     private int rangeSMA;
     private Security security;
     private ChartInterval interval;
+    private CurrencyConverter converter;
     private ChartLineSeriesAxes result;
+    private boolean resultCalculated;
 
     public SimpleMovingAverage(int rangeSMA, Security security, ChartInterval interval)
     {
+        this.resultCalculated = false;
         this.rangeSMA = rangeSMA;
         this.security = security;
         this.interval = Objects.requireNonNull(interval);
 
         this.result = new ChartLineSeriesAxes();
+    }
 
-        calculateSMAInternal();
+    public SimpleMovingAverage(int rangeSMA, Security security, ChartInterval interval, boolean useBaseCurrency, CurrencyConverter converter)
+    {
+        this(rangeSMA, security, interval);
+        this.useBaseCurrency = useBaseCurrency;
+        this.converter = converter;
     }
 
     /**
@@ -40,6 +51,7 @@ public class SimpleMovingAverage
      */
     public ChartLineSeriesAxes getSMA()
     {
+        ensureResultsCalculated();
         return this.result;
     }
 
@@ -56,6 +68,8 @@ public class SimpleMovingAverage
         List<SecurityPrice> prices = security.getPricesIncludingLatest();
         if (prices == null || prices.size() < rangeSMA)
             return;
+        if (useBaseCurrency)
+            prices = security.maybeConvertCurrency(converter, prices);
 
         int index = Collections.binarySearch(prices, new SecurityPrice(interval.getStart(), 0),
                         new SecurityPrice.ByDate());
@@ -95,6 +109,14 @@ public class SimpleMovingAverage
     {
         long sum = prices.stream().mapToLong(SecurityPrice::getValue).sum();
         return sum / Values.Quote.divider() / prices.size();
+    }
+
+    private void ensureResultsCalculated()
+    {
+        if (resultCalculated)
+            return;
+        calculateSMAInternal();
+        this.resultCalculated = true;
     }
 
 }

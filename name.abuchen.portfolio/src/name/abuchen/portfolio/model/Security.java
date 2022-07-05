@@ -17,7 +17,9 @@ import java.util.stream.Stream;
 
 import com.google.common.base.Strings;
 
+import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyUnit;
+import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.util.Pair;
 
 /**
@@ -887,5 +889,36 @@ public final class Security implements Attributable, InvestmentVehicle
     private boolean notEmpty(String s)
     {
         return s != null && s.length() > 0;
+    }
+
+    public boolean currencyConversionNecessary(CurrencyConverter converter)
+    {
+        return currencyCode != null && !currencyCode.equals(converter.getTermCurrency());
+    }
+
+    private long convertCurrency(CurrencyConverter converter, LocalDate date, long value)
+    {
+        return converter.convert(date, Money.of(currencyCode, value)).getAmount();
+    }
+
+    public long maybeConvertCurrency(CurrencyConverter converter, LocalDate date, long value)
+    {
+        if (!currencyConversionNecessary(converter))
+            return value;
+        return convertCurrency(converter, date, value);
+    }
+
+    public List<SecurityPrice> maybeConvertCurrency(CurrencyConverter converter, List<SecurityPrice> prices)
+    {
+        if (!currencyConversionNecessary(converter))
+            return prices;
+        List<SecurityPrice> convertedPrices = new ArrayList<>();
+        for (int i = 0; i < prices.size(); i++)
+        {
+            SecurityPrice p = prices.get(i).copy();
+            p.setValue(convertCurrency(converter, p.getDate(), p.getValue()));
+            convertedPrices.add(i, p);
+        }
+        return convertedPrices;
     }
 }

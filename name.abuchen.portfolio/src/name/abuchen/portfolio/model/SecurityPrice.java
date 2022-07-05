@@ -53,6 +53,11 @@ public class SecurityPrice implements Comparable<SecurityPrice>
         this.value = value;
     }
 
+    public SecurityPrice copy()
+    {
+        return new SecurityPrice(date, value);
+    }
+
     @Override
     public int compareTo(SecurityPrice o)
     {
