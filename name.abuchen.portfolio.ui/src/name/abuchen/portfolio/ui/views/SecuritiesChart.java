@@ -1864,7 +1864,9 @@ public class SecuritiesChart
 
     private String getChartCurrency()
     {
-        return shouldUseBaseCurrency() ? client.getBaseCurrency() : security.getCurrencyCode();
+        if (!security.isExchangeRate() && shouldUseBaseCurrency())
+            return client.getBaseCurrency();
+        return security.getCurrencyCode();
     }
 
     private boolean shouldUseBaseCurrency()

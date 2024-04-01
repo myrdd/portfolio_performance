@@ -900,7 +900,7 @@ public final class Security implements Attributable, InvestmentVehicle
 
     public boolean currencyConversionNecessary(CurrencyConverter converter)
     {
-        return currencyCode != null && !currencyCode.equals(converter.getTermCurrency());
+        return !isExchangeRate() && currencyCode != null && !currencyCode.equals(converter.getTermCurrency());
     }
 
     private long convertCurrency(CurrencyConverter converter, LocalDate date, long value)
