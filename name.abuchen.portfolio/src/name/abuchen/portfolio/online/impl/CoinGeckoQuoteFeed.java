@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.text.MessageFormat;
 import java.text.ParseException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -12,14 +13,15 @@ import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
+import org.apache.hc.core5.http.HttpStatus;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
+
+import com.google.common.util.concurrent.RateLimiter;
 
 import name.abuchen.portfolio.Messages;
 import name.abuchen.portfolio.PortfolioLog;
@@ -29,14 +31,58 @@ import name.abuchen.portfolio.model.SecurityPrice;
 import name.abuchen.portfolio.model.SecurityProperty;
 import name.abuchen.portfolio.online.QuoteFeed;
 import name.abuchen.portfolio.online.QuoteFeedData;
+import name.abuchen.portfolio.util.RateLimitExceededException;
 import name.abuchen.portfolio.util.WebAccess;
+import name.abuchen.portfolio.util.WebAccess.WebAccessException;
 
-public final class CoinGeckoQuoteFeed implements QuoteFeed
+/**
+ * Load prices from CoinGecko.
+ * 
+ * @implNote Even though the CoinGecko documentation states that the free
+ *           version allows 30 requests per minute, we see error messages when
+ *           reaching about 9.5 calls per minute.
+ */
+public class CoinGeckoQuoteFeed implements QuoteFeed
 {
+    public static class Coin
+    {
+        private String id;
+        private String symbol;
+        private String name;
+
+        private Coin()
+        {
+        }
+
+        public Coin(String id, String symbol, String name)
+        {
+            this.id = id;
+            this.symbol = symbol;
+            this.name = name;
+        }
+
+        public String getId()
+        {
+            return id;
+        }
+
+        public String getSymbol()
+        {
+            return symbol;
+        }
+
+        public String getName()
+        {
+            return name;
+        }
+    }
+
     public static final String ID = "COINGECKO"; //$NON-NLS-1$
     public static final String COINGECKO_COIN_ID = "COINGECKOCOINID"; //$NON-NLS-1$
 
-    private Map<String, String> tickerIdMap;
+    private static RateLimiter rateLimiter = RateLimiter.create(9.5 / 60);
+
+    private List<Coin> coins;
 
     @Override
     public String getId()
@@ -95,11 +141,10 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
 
         for (Object price : ohlcArray)
         {
-            if (price instanceof JSONArray)
+            if (price instanceof JSONArray priceArray)
             {
                 try
                 {
-                    JSONArray priceArray = (JSONArray) price;
                     LatestSecurityPrice p = fromArray(priceArray);
 
                     if (previous != null && previous.getDate().equals(p.getDate()))
@@ -128,6 +173,9 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
 
         LatestSecurityPrice price = new LatestSecurityPrice();
         price.setValue(close);
+        price.setHigh(LatestSecurityPrice.NOT_AVAILABLE);
+        price.setLow(LatestSecurityPrice.NOT_AVAILABLE);
+        price.setVolume(LatestSecurityPrice.NOT_AVAILABLE);
 
         // Closing prices will be returned with time 00:00:00 of the next day
         if (date.getHour() == 0 && date.getMinute() == 0 && date.getSecond() == 0)
@@ -141,7 +189,7 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
             // data in UTC. This avoids the bug where users in timezones later
             // than UTC see "latest quotes" one day late during the second part
             // of the day. See:
-            // https://github.com/buchen/portfolio/issues/2106#issuecomment-822023523
+            // https://github.com/portfolio-performance/portfolio/issues/2106#issuecomment-822023523
 
             date = date.withZoneSameInstant(ZoneId.systemDefault());
 
@@ -153,16 +201,19 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
 
     private QuoteFeedData getHistoricalQuotes(Security security, boolean collectRawResponse, LocalDate start)
     {
-        String coinGeckoId;
-
         if (security.getTickerSymbol() == null)
             return QuoteFeedData.withError(
                             new IOException(MessageFormat.format(Messages.MsgMissingTickerSymbol, security.getName())));
+
+        if (!rateLimiter.tryAcquire(Duration.ofSeconds(30)))
+            throw new RateLimitExceededException(Messages.MsgCoinGeckoRateLimitExceeded);
 
         QuoteFeedData data = new QuoteFeedData();
 
         try
         {
+            String coinGeckoId;
+
             // The coin ID may be provided directly as a feed parameter (in case
             // the ticker is ambiguously defined)
             Optional<String> coinGeckoIdProperty = security.getPropertyValue(SecurityProperty.Type.FEED,
@@ -182,18 +233,25 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
                             .addParameter("vs_currency", security.getCurrencyCode()) //$NON-NLS-1$
                             .addParameter("days", Long.toString(days)) //$NON-NLS-1$
                             .addParameter("interval", "daily"); //$NON-NLS-1$ //$NON-NLS-2$
-            String html = webaccess.get();
+            String json = webaccess.get();
 
             if (collectRawResponse)
-                data.addResponse(webaccess.getURL(), html);
+                data.addResponse(webaccess.getURL(), json);
 
-            JSONObject marketChartObject = (JSONObject) JSONValue.parse(html);
+            JSONObject marketChartObject = (JSONObject) JSONValue.parse(json);
 
             if (marketChartObject != null && marketChartObject.containsKey("prices")) //$NON-NLS-1$
             {
                 JSONArray priceArray = (JSONArray) marketChartObject.get("prices"); //$NON-NLS-1$
                 convertCoinGeckoJsonArray(priceArray, data);
             }
+        }
+        catch (WebAccessException e)
+        {
+            if (e.getHttpErrorCode() == HttpStatus.SC_TOO_MANY_REQUESTS)
+                throw new RateLimitExceededException(Messages.MsgCoinGeckoRateLimitExceeded);
+
+            data.addError(e);
         }
         catch (IOException | URISyntaxException e)
         {
@@ -215,10 +273,10 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
      */
     private String getCoinGeckoIdForTicker(String tickerSymbol) throws IOException
     {
-        String tickerId = getTickerIdMap().get(tickerSymbol);
+        Optional<Coin> coinGeckoId = getCoins().stream().filter(c -> c.symbol.equals(tickerSymbol)).findFirst();
 
-        if (tickerId != null)
-            return tickerId;
+        if (coinGeckoId.isPresent())
+            return coinGeckoId.get().id;
         else
             throw new IOException(MessageFormat.format(Messages.MsgMissingTickerSymbol, tickerSymbol));
     }
@@ -227,17 +285,12 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
      * The CoinGecko API only allows to fetch a complete set of ID mappings for
      * all coins existing on the platform. In order to avoid unnecessary calls
      * the mapping will be buffered locally in a HashMap.
-     * 
-     * @return Buffered HashMap for: Crypto Ticker Symbol -> Internal CoinGecko
-     *         ID
-     * @throws IOException
-     *             Error during creation of HashMap
      */
-    private synchronized Map<String, String> getTickerIdMap() throws IOException
+    public synchronized List<Coin> getCoins() throws IOException
     {
-        if (tickerIdMap == null)
+        if (coins == null)
         {
-            Map<String, String> ticker2id = new HashMap<>(10000);
+            List<Coin> coinList = new ArrayList<>();
 
             WebAccess webaccess = new WebAccess("api.coingecko.com", "/api/v3/coins/list"); //$NON-NLS-1$ //$NON-NLS-2$
             String html = webaccess.get();
@@ -246,16 +299,22 @@ public final class CoinGeckoQuoteFeed implements QuoteFeed
 
             if (coinArray != null)
             {
-                for (Object coin : coinArray)
+                for (Object object : coinArray)
                 {
-                    JSONObject coinObject = (JSONObject) coin;
-                    ticker2id.put(coinObject.get("symbol").toString(), coinObject.get("id").toString()); //$NON-NLS-1$ //$NON-NLS-2$
+                    JSONObject coinObject = (JSONObject) object;
+
+                    Coin coin = new Coin();
+                    coin.id = (String) coinObject.get("id"); //$NON-NLS-1$
+                    coin.symbol = (String) coinObject.get("symbol"); //$NON-NLS-1$
+                    coin.name = (String) coinObject.get("name"); //$NON-NLS-1$
+
+                    coinList.add(coin);
                 }
             }
 
-            tickerIdMap = ticker2id;
+            coins = coinList;
         }
 
-        return tickerIdMap;
+        return coins;
     }
 }

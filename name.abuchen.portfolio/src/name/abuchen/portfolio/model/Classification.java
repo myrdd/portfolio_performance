@@ -8,6 +8,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
 
@@ -85,6 +86,16 @@ public class Classification implements Named
                 return null;
 
             return data.get(key);
+        }
+
+        public Assignment copyWith(InvestmentVehicle vehicle)
+        {
+            Assignment copy = new Assignment(vehicle);
+            copy.setWeight(this.getWeight());
+            copy.setRank(this.getRank());
+            if (this.data != null)
+                copy.data = new HashMap<>(this.data);
+            return copy;
         }
 
         /* protobuf only */ List<PKeyValue> getData()
@@ -524,15 +535,62 @@ public class Classification implements Named
 
         for (Assignment assignment : assignments)
         {
-            Assignment a = new Assignment(assignment.getInvestmentVehicle());
-            a.setWeight(assignment.getWeight());
-            a.setRank(assignment.getRank());
-            if (assignment.data != null)
-                a.data = new HashMap<>(assignment.data);
+            Assignment a = assignment.copyWith(assignment.getInvestmentVehicle());
             copy.addAssignment(a);
         }
 
         return copy;
+    }
+
+    /**
+     * Returns a classification that is a copy of this classification, but all
+     * assignments are merged as direct children.
+     */
+    public Classification flattenAssignments()
+    {
+        var result = new Classification(null, id, name, this.color);
+        result.rank = this.rank;
+        result.weight = this.weight;
+        if (this.data != null)
+            result.data = new HashMap<>(this.data);
+
+        var stack = new LinkedList<Classification>();
+        stack.add(this);
+
+        while (!stack.isEmpty())
+        {
+            var c = stack.pop();
+            stack.addAll(c.getChildren());
+
+            for (Assignment assignment : c.getAssignments())
+            {
+                if (assignment.getWeight() == ONE_HUNDRED_PERCENT)
+                {
+                    result.addAssignment(assignment);
+                }
+                else
+                {
+                    Optional<Assignment> existing = result.assignments.stream()
+                                    .filter(a -> a.getInvestmentVehicle() == assignment.getInvestmentVehicle())
+                                    .findAny();
+
+                    if (existing.isPresent())
+                    {
+                        Assignment merged = new Assignment(assignment.getInvestmentVehicle());
+                        merged.weight = existing.get().getWeight() + assignment.getWeight();
+
+                        result.removeAssignment(existing.get());
+                        result.addAssignment(merged);
+                    }
+                    else
+                    {
+                        result.addAssignment(assignment);
+                    }
+                }
+            }
+        }
+
+        return result;
     }
 
     private static List<PKeyValue> toProtobuf(Map<String, Object> data)
@@ -549,12 +607,12 @@ public class Classification implements Named
             Object value = entry.getValue();
             if (value == null)
                 newEntry.setValue(PAnyValue.newBuilder().setNullValue(NullValue.NULL_VALUE_VALUE).build());
-            else if (value instanceof String)
-                newEntry.setValue(PAnyValue.newBuilder().setString((String) value));
-            else if (value instanceof Boolean)
-                newEntry.setValue(PAnyValue.newBuilder().setBool((Boolean) value));
-            else if (value instanceof Integer)
-                newEntry.setValue(PAnyValue.newBuilder().setInt32((Integer) value));
+            else if (value instanceof String s)
+                newEntry.setValue(PAnyValue.newBuilder().setString(s));
+            else if (value instanceof Boolean b)
+                newEntry.setValue(PAnyValue.newBuilder().setBool(b));
+            else if (value instanceof Integer i)
+                newEntry.setValue(PAnyValue.newBuilder().setInt32(i));
             else
                 throw new UnsupportedOperationException(value.getClass().getName());
 

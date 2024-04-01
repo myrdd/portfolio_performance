@@ -4,7 +4,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.inject.Named;
+import jakarta.inject.Named;
 
 import org.eclipse.e4.core.contexts.ContextInjectionFactory;
 import org.eclipse.e4.core.contexts.IEclipseContext;
@@ -26,6 +26,8 @@ import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Portfolio;
 import name.abuchen.portfolio.ui.Messages;
+import name.abuchen.portfolio.ui.UIConstants;
+import name.abuchen.portfolio.ui.editor.FilePathHelper;
 import name.abuchen.portfolio.ui.editor.PortfolioPart;
 import name.abuchen.portfolio.ui.wizards.datatransfer.CSVImportWizard;
 
@@ -55,23 +57,28 @@ public class ImportCSVHandler
     {
         if (client.getAccounts().isEmpty())
         {
-            MessageDialog.openError(shell, Messages.LabelError, Messages.MsgMissingAccount);
+            MessageDialog.openError(shell, Messages.LabelError, Messages.MsgErrorAccountNotExist);
             return;
         }
 
         if (client.getPortfolios().isEmpty())
         {
-            MessageDialog.openError(shell, Messages.LabelError, Messages.MsgMissingPortfolio);
+            MessageDialog.openError(shell, Messages.LabelError, Messages.MsgErrorPortfolioNotExist);
             return;
         }
 
+        FilePathHelper helper = new FilePathHelper(part, UIConstants.Preferences.CSV_IMPORT_PATH);
+
         FileDialog fileDialog = new FileDialog(shell, SWT.OPEN);
         fileDialog.setFilterNames(new String[] { Messages.CSVImportLabelFileCSV, Messages.CSVImportLabelFileAll });
-        fileDialog.setFilterExtensions(new String[] { "*.csv", "*.*" }); //$NON-NLS-1$ //$NON-NLS-2$
+        fileDialog.setFilterExtensions(new String[] { "*.csv;*.CSV", "*.*" }); //$NON-NLS-1$ //$NON-NLS-2$
+        fileDialog.setFilterPath(helper.getPath());
         String fileName = fileDialog.open();
 
         if (fileName == null)
             return;
+
+        helper.savePath(fileDialog.getFilterPath());
 
         IPreferenceStore preferences = part.getPreferenceStore();
 

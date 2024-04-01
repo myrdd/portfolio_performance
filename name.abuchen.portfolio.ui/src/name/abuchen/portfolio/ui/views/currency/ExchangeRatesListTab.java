@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.e4.ui.di.UIEventTopic;
 import org.eclipse.e4.ui.services.IStylingEngine;
@@ -201,7 +201,7 @@ public class ExchangeRatesListTab implements AbstractTabbedView.Tab
                             provider.isPresent() ? provider.get().getName() : "-"); //$NON-NLS-1$
 
             chart.getTitle().setText(title);
-            chart.addDateSeries(dates, values, Colors.ICON_BLUE, title);
+            chart.addDateSeries(title, dates, values, Colors.ICON_BLUE, title);
 
             chart.adjustRange();
         }

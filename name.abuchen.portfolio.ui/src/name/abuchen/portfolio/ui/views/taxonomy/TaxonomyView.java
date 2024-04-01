@@ -9,8 +9,8 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.eclipse.e4.core.di.extensions.Preference;
 import org.eclipse.jface.action.Action;
@@ -31,6 +31,7 @@ import org.eclipse.swt.widgets.Text;
 
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Taxonomy;
+import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.online.TaxonomySource;
 import name.abuchen.portfolio.snapshot.filter.ClientFilter;
 import name.abuchen.portfolio.ui.Images;
@@ -40,7 +41,9 @@ import name.abuchen.portfolio.ui.editor.AbstractFinanceView;
 import name.abuchen.portfolio.ui.util.ClientFilterMenu;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.LabelOnly;
+import name.abuchen.portfolio.ui.util.ReportingPeriodDropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
+import name.abuchen.portfolio.ui.util.ReportingPeriodDropDown.ReportingPeriodListener;
 import name.abuchen.portfolio.ui.views.panes.HistoricalPricesPane;
 import name.abuchen.portfolio.ui.views.panes.InformationPanePage;
 import name.abuchen.portfolio.ui.views.panes.SecurityEventsPane;
@@ -48,7 +51,7 @@ import name.abuchen.portfolio.ui.views.panes.SecurityPriceChartPane;
 import name.abuchen.portfolio.ui.views.panes.TradesPane;
 import name.abuchen.portfolio.ui.views.panes.TransactionsPane;
 
-public class TaxonomyView extends AbstractFinanceView implements PropertyChangeListener
+public class TaxonomyView extends AbstractFinanceView implements PropertyChangeListener, ReportingPeriodListener
 {
     private class FilterDropDown extends DropDown implements IMenuListener
     {
@@ -88,15 +91,7 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
             String prefix = TaxonomyView.class.getSimpleName() + "-" + taxonomy.getId(); //$NON-NLS-1$
 
             // client filter
-            String key = prefix + ClientFilterMenu.PREF_KEY_POSTFIX;
-
-            String selection = preferenceStore.getString(key);
-            if (selection != null)
-                clientFilterMenu.getAllItems().filter(item -> item.getUUIDs().equals(selection)).findAny()
-                                .ifPresent(clientFilterMenu::select);
-
-            clientFilterMenu.addListener(
-                            filter -> preferenceStore.putValue(key, clientFilterMenu.getSelectedItem().getUUIDs()));
+            clientFilterMenu.trackSelectedFilterConfigurationKey(prefix);
 
             // predicates
             if (preferenceStore.getBoolean(prefix + TaxonomyModel.KEY_FILTER_NON_ZERO))
@@ -167,6 +162,7 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
     private TaxonomyModel model;
     private Taxonomy taxonomy;
     private ClientFilter clientFilter;
+    private ReportingPeriodDropDown reportingPeriodDropDown;
 
     private Composite container;
     private List<Action> viewActions = new ArrayList<>();
@@ -182,9 +178,10 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
     }
 
     @Inject
-    public void setup(@Named(UIConstants.Parameter.VIEW_PARAMETER) Taxonomy parameter)
+    public void setup(@Named(UIConstants.Parameter.VIEW_PARAMETER) Taxonomy taxonomy,
+                    ExchangeRateProviderFactory factory)
     {
-        this.taxonomy = parameter;
+        this.taxonomy = taxonomy;
 
         this.identifierView = TaxonomyView.class.getSimpleName() + "-VIEW-" + taxonomy.getId(); //$NON-NLS-1$
         this.identifierUnassigned = TaxonomyView.class.getSimpleName() + "-UNASSIGNED-" + taxonomy.getId(); //$NON-NLS-1$
@@ -196,7 +193,7 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
         this.expansionStateReblancing = TaxonomyView.class.getSimpleName() + "-EXPANSION-REBALANCE-" //$NON-NLS-1$
                         + taxonomy.getId();
 
-        this.model = make(TaxonomyModel.class, taxonomy);
+        this.model = new TaxonomyModel(factory, getClient(), taxonomy);
 
         IPreferenceStore preferences = getPreferenceStore();
         this.model.setExcludeUnassignedCategoryInCharts(preferences.getBoolean(identifierUnassigned));
@@ -250,6 +247,7 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
 
         toolBar.add(new Separator());
 
+        addReportingPeriodDropDown(toolBar);
         addSearchButton(toolBar);
 
         toolBar.add(new Separator());
@@ -257,6 +255,12 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
         toolBar.add(new FilterDropDown(getPreferenceStore()));
         addExportButton(toolBar);
         addConfigButton(toolBar);
+    }
+
+    private void addReportingPeriodDropDown(ToolBarManager toolBar)
+    {
+        reportingPeriodDropDown = new ReportingPeriodDropDown(getPart(), this);
+        toolBar.add(reportingPeriodDropDown);
     }
 
     private void addSearchButton(ToolBarManager toolBar)
@@ -394,13 +398,17 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
             if (layout.topControl != null)
                 ((Page) layout.topControl.getData()).afterPage();
 
-            ((Page) children[index].getData()).beforePage();
+            Page page = (Page) children[index].getData();
+
+            page.beforePage();
 
             layout.topControl = children[index];
             container.layout();
 
             for (int ii = 0; ii < viewActions.size(); ii++)
                 viewActions.get(ii).setChecked(index == ii);
+
+            reportingPeriodDropDown.setEnabled(page instanceof ReportingPeriodListener);
 
             getPart().getPreferenceStore().setValue(identifierView, index);
         }
@@ -415,5 +423,18 @@ public class TaxonomyView extends AbstractFinanceView implements PropertyChangeL
         pages.add(make(TransactionsPane.class));
         pages.add(make(TradesPane.class));
         pages.add(make(SecurityEventsPane.class));
+    }
+
+    @Override
+    public void reportingPeriodUpdated()
+    {
+        for (Control control : container.getChildren())
+        {
+            Page page = (Page) control.getData();
+            if (page instanceof ReportingPeriodListener)
+            {
+                ((ReportingPeriodListener)page).reportingPeriodUpdated();
+            }
+        }
     }
 }

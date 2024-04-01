@@ -4,12 +4,13 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -17,144 +18,45 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import name.abuchen.portfolio.Messages;
+import name.abuchen.portfolio.datatransfer.DocumentContext;
 import name.abuchen.portfolio.datatransfer.Extractor.Item;
 import name.abuchen.portfolio.model.TypedMap;
 
-/* package */final class PDFParser
+/* package */ final class PDFParser
 {
-    /* package */static class DocumentContext implements Map<String, String>
-    {
-        private Map<String, Object> backingMap = new HashMap<>();
-
-        @Override
-        public int size()
-        {
-            return backingMap.size();
-        }
-
-        @Override
-        public boolean isEmpty()
-        {
-            return backingMap.isEmpty();
-        }
-
-        @Override
-        public boolean containsKey(Object key)
-        {
-            return backingMap.containsKey(key);
-        }
-
-        @Override
-        public boolean containsValue(Object value)
-        {
-            return backingMap.containsValue(value);
-        }
-
-        @Override
-        public String get(Object key)
-        {
-            Object v = backingMap.get(key);
-            return v == null ? null : v instanceof String ? (String) v : String.valueOf(v); // NOSONAR
-        }
-
-        @Override
-        public String put(String key, String value)
-        {
-            Object v = backingMap.put(key, value);
-            return v == null ? null : v instanceof String ? (String) v : String.valueOf(v); // NOSONAR
-        }
-
-        @Override
-        public String remove(Object key)
-        {
-            Object v = backingMap.remove(key);
-            return v == null ? null : v instanceof String ? (String) v : String.valueOf(v); // NOSONAR
-        }
-
-        public <T> void putType(T value)
-        {
-            backingMap.put(value.getClass().getName(), value);
-        }
-
-        public <T> Optional<T> getType(Class<T> key)
-        {
-            Object v = backingMap.get(key.getName());
-            return key.isInstance(v) ? Optional.of(key.cast(v)) : Optional.empty();
-        }
-
-        public void removeType(Class<?> key)
-        {
-            backingMap.remove(key.getName());
-        }
-
-        public boolean getBoolean(String key)
-        {
-            Object answer = backingMap.get(key);
-
-            if (answer == null)
-                return false;
-
-            if (answer instanceof Boolean)
-                return (Boolean) answer;
-
-            if (answer instanceof String)
-                return Boolean.getBoolean((String) answer);
-
-            throw new IllegalArgumentException(key);
-        }
-
-        public void putBoolean(String key, boolean value)
-        {
-            backingMap.put(key, value);
-        }
-
-        @Override
-        public void putAll(Map<? extends String, ? extends String> m)
-        {
-            backingMap.putAll(m);
-        }
-
-        @Override
-        public void clear()
-        {
-            backingMap.clear();
-        }
-
-        @Override
-        public Set<String> keySet()
-        {
-            return backingMap.keySet();
-        }
-
-        @Override
-        public Collection<String> values()
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Set<Entry<String, String>> entrySet()
-        {
-            throw new UnsupportedOperationException();
-        }
-    }
-
-    /* package */static class DocumentType
+    /* package */ static class DocumentType
     {
         private List<Pattern> mustInclude = new ArrayList<>();
+        private List<Pattern> mustNotInclude = new ArrayList<>();
 
         private List<Block> blocks = new ArrayList<>();
         private DocumentContext context = new DocumentContext();
         private BiConsumer<DocumentContext, String[]> contextProvider;
-
-        public DocumentType(List<Pattern> mustInclude)
-        {
-            this.mustInclude.addAll(mustInclude);
-        }
+        private Consumer<Transaction<DocumentContext>> contextBuilder;
 
         public DocumentType(String mustInclude)
         {
-            this(mustInclude, null);
+            this.mustInclude.add(Pattern.compile(mustInclude));
+        }
+
+        public DocumentType(String mustInclude, Consumer<Transaction<DocumentContext>> contextBuilder)
+        {
+            this.mustInclude.add(Pattern.compile(mustInclude));
+            this.contextBuilder = contextBuilder;
+        }
+
+        public DocumentType(String mustInclude, String mustNotInclude,
+                        Consumer<Transaction<DocumentContext>> contextBuilder)
+        {
+            this.mustInclude.add(Pattern.compile(mustInclude));
+            this.mustNotInclude.add(Pattern.compile(mustNotInclude));
+            this.contextBuilder = contextBuilder;
+        }
+
+        public DocumentType(String mustInclude, String mustNotInclude)
+        {
+            this.mustInclude.add(Pattern.compile(mustInclude));
+            this.mustNotInclude.add(Pattern.compile(mustNotInclude));
         }
 
         public DocumentType(String mustInclude, BiConsumer<DocumentContext, String[]> contextProvider)
@@ -163,11 +65,27 @@ import name.abuchen.portfolio.model.TypedMap;
             this.contextProvider = contextProvider;
         }
 
+        public DocumentType(String mustInclude, String mustNotInclude,
+                        BiConsumer<DocumentContext, String[]> contextProvider)
+        {
+            this.mustInclude.add(Pattern.compile(mustInclude));
+            this.mustNotInclude.add(Pattern.compile(mustNotInclude));
+            this.contextProvider = contextProvider;
+        }
+
         public boolean matches(String text)
         {
+            // Check if the text matches the mustInclude patterns
             for (Pattern pattern : mustInclude)
             {
                 if (!pattern.matcher(text).find())
+                    return false;
+            }
+
+            // Check if matches mustNotInclude to skip processing
+            for (Pattern pattern : mustNotInclude)
+            {
+                if (pattern.matcher(text).find())
                     return false;
             }
 
@@ -200,10 +118,10 @@ import name.abuchen.portfolio.model.TypedMap;
 
             // reset context and parse it from this file
             context.clear();
-            parseContext(context, lines);
+            parseContext(filename, context, lines);
 
             for (Block block : blocks)
-                block.parse(filename, items, lines);
+                block.parse(filename, context, items, lines);
         }
 
         /**
@@ -214,13 +132,21 @@ import name.abuchen.portfolio.model.TypedMap;
          * @param lines
          *            content lines of the file
          */
-        private void parseContext(DocumentContext context, String[] lines)
+        private void parseContext(String filename, DocumentContext context, String[] lines)
         {
             // if a context provider is given call it, else parse the current
             // context in a subclass
             if (contextProvider != null)
             {
                 contextProvider.accept(context, lines);
+            }
+
+            if (contextBuilder != null)
+            {
+                var builder = new Transaction<DocumentContext>() //
+                                .subject(() -> context).wrap(ctx -> null);
+                contextBuilder.accept(builder);
+                builder.parse(filename, context, Collections.emptyList(), lines, 0, lines.length - 1);
             }
         }
     }
@@ -258,7 +184,7 @@ import name.abuchen.portfolio.model.TypedMap;
             this.transaction = transaction;
         }
 
-        public void parse(String filename, List<Item> items, String[] lines)
+        public void parse(String filename, DocumentContext documentContext, List<Item> items, String[] lines)
         {
             List<Integer> blocks = new ArrayList<>();
 
@@ -291,7 +217,7 @@ import name.abuchen.portfolio.model.TypedMap;
                     endLine = Math.min(endLine, startLine + maxSize - 1);
                 }
 
-                transaction.parse(filename, items, lines, startLine, endLine);
+                transaction.parse(filename, documentContext, items, lines, startLine, endLine);
             }
         }
 
@@ -311,7 +237,7 @@ import name.abuchen.portfolio.model.TypedMap;
     /* package */static class Transaction<T>
     {
         private Supplier<T> supplier;
-        private Function<T, Item> wrapper;
+        private BiFunction<T, TypedMap, Item> wrapper;
         private List<Section<T>> sections = new ArrayList<>();
         private List<Consumer<T>> concludes = new ArrayList<>();
 
@@ -328,8 +254,32 @@ import name.abuchen.portfolio.model.TypedMap;
             return section;
         }
 
+        /**
+         * The document must contain one of the sections. The sections are
+         * matched in order of the definition and the first matching section is
+         * used. If no section is matching, the parsing is aborted.
+         */
         @SafeVarargs
         public final Transaction<T> oneOf(Function<Section<T>, Transaction<T>>... alternatives)
+        {
+            return internalOneOf(false, alternatives);
+        }
+
+        /**
+         * The document must contain at most one of the sections. The sections
+         * are matched in order of the definition and the first matching section
+         * is used. If no section is matching, parsing continues with the next
+         * sections.
+         */
+        @SafeVarargs
+        public final Transaction<T> optionalOneOf(Function<Section<T>, Transaction<T>>... alternatives)
+        {
+            return internalOneOf(true, alternatives);
+        }
+
+        @SafeVarargs
+        private final Transaction<T> internalOneOf(boolean isOptional,
+                        Function<Section<T>, Transaction<T>>... alternatives)
         {
             List<Section<T>> subSections = new ArrayList<>();
             for (Function<Section<T>, Transaction<T>> function : alternatives)
@@ -342,7 +292,8 @@ import name.abuchen.portfolio.model.TypedMap;
             sections.add(new Section<T>(this, null)
             {
                 @Override
-                public void parse(String filename, String[] lines, int lineNo, int lineNoEnd, TypedMap ctx, T target)
+                public void parse(String filename, DocumentContext documentContext, String[] lines, int lineNo,
+                                int lineNoEnd, TypedMap ctx, T target)
                 {
                     List<String> errors = new ArrayList<>();
 
@@ -350,7 +301,7 @@ import name.abuchen.portfolio.model.TypedMap;
                     {
                         try
                         {
-                            section.parse(filename, lines, lineNo, lineNoEnd, ctx, target);
+                            section.parse(filename, documentContext, lines, lineNo, lineNoEnd, ctx, target);
 
                             // if parsing was successful, then return
                             return;
@@ -362,9 +313,11 @@ import name.abuchen.portfolio.model.TypedMap;
                         }
                     }
 
-                    throw new IllegalArgumentException(MessageFormat.format(Messages.MsgErrorNoneOfSubSectionsMatched,
-                                    String.valueOf(subSections.size()), String.join("; ", errors), lineNo + 1, //$NON-NLS-1$
-                                    lineNoEnd + 1));
+                    if (!isOptional)
+                        throw new IllegalArgumentException(MessageFormat.format(
+                                        Messages.MsgErrorNoneOfSubSectionsMatched, String.valueOf(subSections.size()),
+                                        String.join("; ", errors), lineNo + 1, //$NON-NLS-1$
+                                        lineNoEnd + 1));
                 }
             });
             return this;
@@ -378,18 +331,24 @@ import name.abuchen.portfolio.model.TypedMap;
 
         public Transaction<T> wrap(Function<T, Item> wrapper)
         {
+            return wrap((t, c) -> wrapper.apply(t));
+        }
+
+        public Transaction<T> wrap(BiFunction<T, TypedMap, Item> wrapper)
+        {
             this.wrapper = wrapper;
             return this;
         }
 
-        public void parse(String filename, List<Item> items, String[] lines, int lineNoStart, int lineNoEnd)
+        public void parse(String filename, DocumentContext documentContext, List<Item> items, String[] lines,
+                        int lineNoStart, int lineNoEnd)
         {
             TypedMap txContext = new TypedMap();
 
             T target = supplier.get();
 
             for (Section<T> section : sections)
-                section.parse(filename, lines, lineNoStart, lineNoEnd, txContext, target);
+                section.parse(filename, documentContext, lines, lineNoStart, lineNoEnd, txContext, target);
 
             for (Consumer<T> conclude : concludes)
                 conclude.accept(target);
@@ -397,7 +356,7 @@ import name.abuchen.portfolio.model.TypedMap;
             if (wrapper == null)
                 throw new IllegalArgumentException("Wrapping function missing"); //$NON-NLS-1$
 
-            Item item = wrapper.apply(target);
+            Item item = wrapper.apply(target, txContext);
             if (item != null)
                 items.add(item);
         }
@@ -524,7 +483,11 @@ import name.abuchen.portfolio.model.TypedMap;
         private boolean isOptional = false;
         private boolean isMultipleTimes = false;
         private Transaction<T> transaction;
+        /** attributes extracted from regular pattern */
         private String[] attributes;
+        /** attributes mixed in from the document context */
+        private String[] documentAttributes;
+
         private List<Pattern> pattern = new ArrayList<>();
         private BiConsumer<T, ParsedData> assignment;
 
@@ -537,6 +500,12 @@ import name.abuchen.portfolio.model.TypedMap;
         public Section<T> attributes(String... attributes)
         {
             this.attributes = attributes;
+            return this;
+        }
+
+        public Section<T> documentContext(String... documentAttributes)
+        {
+            this.documentAttributes = documentAttributes;
             return this;
         }
 
@@ -570,7 +539,8 @@ import name.abuchen.portfolio.model.TypedMap;
             return transaction;
         }
 
-        public void parse(String filename, String[] lines, int lineNo, int lineNoEnd, TypedMap txContext, T target)
+        public void parse(String filename, DocumentContext documentContext, String[] lines, int lineNo, int lineNoEnd,
+                        TypedMap txContext, T target)
         {
             if (assignment == null)
                 throw new IllegalArgumentException("Assignment function missing"); //$NON-NLS-1$
@@ -600,6 +570,22 @@ import name.abuchen.portfolio.model.TypedMap;
                                             Messages.MsgErrorMissingValueMatches, values.keySet().toString(),
                                             Arrays.toString(attributes), filename, lineNo + 1, lineNoEnd + 1));
 
+                        // enrich extracted values with context values
+                        if (documentAttributes != null)
+                        {
+                            for (String attribute : documentAttributes)
+                            {
+                                if (!documentContext.containsKey(attribute))
+                                {
+                                    throw new IllegalArgumentException(MessageFormat.format(
+                                                    Messages.MsgErrorMissingValueMatches, values.keySet().toString(),
+                                                    attribute, filename, lineNo + 1, lineNoEnd + 1));
+                                }
+
+                                values.put(attribute, documentContext.get(attribute));
+                            }
+                        }
+
                         assignment.accept(target, new ParsedData(values, lineNo, lineNoEnd, filename, txContext));
 
                         // if there might be multiple occurrences that match,
@@ -619,9 +605,13 @@ import name.abuchen.portfolio.model.TypedMap;
                 }
             }
 
-            if (patternNo < pattern.size() && !sectionFoundAtLeastOnce && !isOptional)
-                throw new IllegalArgumentException(MessageFormat.format(Messages.MsgErrorNotAllPatternMatched,
-                                patternNo, pattern.size(), pattern.toString(), filename, lineNo + 1, lineNoEnd + 1));
+            if (patternNo < pattern.size() && !sectionFoundAtLeastOnce && !isOptional) //
+                throw new IllegalArgumentException( //
+                                Arrays.toString(attributes) + MessageFormat.format( //
+                                                Messages.MsgErrorNotAllPatternMatched, //
+                                                patternNo, pattern.size(), pattern.toString(), //
+                                                filename, //
+                                                lineNo + 1, lineNoEnd + 1));
         }
 
         private void extractAttributes(Map<String, String> values, Pattern p, Matcher m)

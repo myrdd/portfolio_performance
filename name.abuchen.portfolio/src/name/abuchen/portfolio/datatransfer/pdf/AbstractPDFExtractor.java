@@ -1,7 +1,9 @@
 package name.abuchen.portfolio.datatransfer.pdf;
 
+import static name.abuchen.portfolio.util.TextUtil.concatenate;
 import static name.abuchen.portfolio.util.TextUtil.trim;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.text.MessageFormat;
 import java.text.NumberFormat;
@@ -13,10 +15,16 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
+
+import com.google.common.annotations.VisibleForTesting;
 
 import name.abuchen.portfolio.Messages;
 import name.abuchen.portfolio.PortfolioLog;
+import name.abuchen.portfolio.datatransfer.ExtrExchangeRate;
 import name.abuchen.portfolio.datatransfer.Extractor;
+import name.abuchen.portfolio.datatransfer.ExtractorUtils;
 import name.abuchen.portfolio.datatransfer.SecurityCache;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.DocumentType;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.ParsedData;
@@ -24,13 +32,20 @@ import name.abuchen.portfolio.model.Annotated;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.CrossEntry;
 import name.abuchen.portfolio.model.Security;
+import name.abuchen.portfolio.model.SecurityProperty;
 import name.abuchen.portfolio.model.Transaction;
 import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.money.Values;
+import name.abuchen.portfolio.online.Factory;
+import name.abuchen.portfolio.online.QuoteFeed;
+import name.abuchen.portfolio.online.impl.CoinGeckoQuoteFeed;
+import name.abuchen.portfolio.online.impl.CoinGeckoQuoteFeed.Coin;
 
 public abstract class AbstractPDFExtractor implements Extractor
 {
+    protected static final String FAILURE = "FAILURE"; //$NON-NLS-1$
+
     private final NumberFormat numberFormat = NumberFormat.getInstance(Locale.GERMANY);
 
     private final Client client;
@@ -106,14 +121,14 @@ public abstract class AbstractPDFExtractor implements Extractor
             {
                 Annotated subject = item.getSubject();
 
-                if (subject instanceof Transaction)
-                    ((Transaction) subject).setSource(filename);
-                else if (subject instanceof CrossEntry)
-                    ((CrossEntry) subject).setSource(filename);
+                if (subject instanceof Transaction tx)
+                    tx.setSource(filename);
+                else if (subject instanceof CrossEntry entry)
+                    entry.setSource(filename);
                 else if (subject.getNote() == null || trim(subject.getNote()).length() == 0)
                     item.getSubject().setNote(filename);
                 else
-                    item.getSubject().setNote(trim(item.getSubject().getNote()).concat(" | ").concat(filename)); //$NON-NLS-1$
+                    item.getSubject().setNote(concatenate(trim(item.getSubject().getNote()), filename, " | ")); //$NON-NLS-1$
             }
 
             return items;
@@ -166,6 +181,62 @@ public abstract class AbstractPDFExtractor implements Extractor
 
     protected Security getOrCreateSecurity(Map<String, String> values)
     {
+        return getOrCreateSecurity(values, () -> new Security(null, asCurrencyCode(values.get("currency")))); //$NON-NLS-1$
+    }
+
+    /**
+     * Cryptos are identified a) by the coin tickerSymbol (BTC, ETH) or directly
+     * by name. Missing crypto currencies are created for use with coin gecko
+     * quote feed
+     */
+    protected Security getOrCreateCryptoCurrency(Map<String, String> values)
+    {
+        // enrich values map with name to allow matching by name
+        Optional<CoinGeckoQuoteFeed.Coin> coin = lookupCoin(values);
+
+        if (coin.isPresent())
+            values.put("name", coin.get().getName()); //$NON-NLS-1$
+
+        return getOrCreateSecurity(values, () -> {
+            Security crypto = new Security(null, asCurrencyCode(values.get("currency"))); //$NON-NLS-1$
+
+            if (coin.isPresent())
+            {
+                crypto.setTickerSymbol(coin.get().getSymbol().toUpperCase());
+                crypto.setFeed(CoinGeckoQuoteFeed.ID);
+                crypto.setPropertyValue(SecurityProperty.Type.FEED, CoinGeckoQuoteFeed.COINGECKO_COIN_ID,
+                                coin.get().getId());
+                crypto.setLatestFeed(QuoteFeed.MANUAL);
+            }
+
+            return crypto;
+        });
+    }
+
+    private Optional<Coin> lookupCoin(Map<String, String> values)
+    {
+        try
+        {
+            String tickerSymbol = values.get("tickerSymbol").trim(); //$NON-NLS-1$
+
+            var coins = lookupFeed().getCoins();
+            return coins.stream().filter(c -> c.getSymbol().equalsIgnoreCase(tickerSymbol)).findAny();
+        }
+        catch (IOException e)
+        {
+            PortfolioLog.error(e);
+            return Optional.empty();
+        }
+    }
+
+    @VisibleForTesting
+    protected CoinGeckoQuoteFeed lookupFeed()
+    {
+        return Factory.getQuoteFeed(CoinGeckoQuoteFeed.class);
+    }
+
+    private Security getOrCreateSecurity(Map<String, String> values, Supplier<Security> factory)
+    {
         String isin = values.get("isin"); //$NON-NLS-1$
         if (isin != null)
             isin = isin.trim();
@@ -186,11 +257,7 @@ public abstract class AbstractPDFExtractor implements Extractor
         if (nameRowTwo != null)
             name = name + " " + nameRowTwo.trim(); //$NON-NLS-1$
 
-        Security security = securityCache.lookup(isin, tickerSymbol, wkn, name, () -> {
-            Security s = new Security();
-            s.setCurrencyCode(asCurrencyCode(values.get("currency"))); //$NON-NLS-1$
-            return s;
-        });
+        Security security = securityCache.lookup(isin, tickerSymbol, wkn, name, factory);
 
         if (security == null)
             throw new IllegalArgumentException("Unable to construct security: " + values.toString()); //$NON-NLS-1$
@@ -212,7 +279,7 @@ public abstract class AbstractPDFExtractor implements Extractor
 
     protected long asShares(String value, String language, String country)
     {
-        return PDFExtractorUtils.asShares(value, language, country);
+        return ExtractorUtils.asShares(value, language, country);
     }
 
     protected String asCurrencyCode(String currency)
@@ -222,6 +289,10 @@ public abstract class AbstractPDFExtractor implements Extractor
             return client.getBaseCurrency();
 
         CurrencyUnit unit = CurrencyUnit.getInstance(currency.trim());
+        if (unit != null)
+            return unit.getCurrencyCode();
+
+        unit = CurrencyUnit.getInstanceBySymbol(currency.trim());
         return unit == null ? client.getBaseCurrency() : unit.getCurrencyCode();
     }
 
@@ -237,9 +308,14 @@ public abstract class AbstractPDFExtractor implements Extractor
         }
     }
 
-    protected PDFExchangeRate asExchangeRate(Map<String, String> data)
+    protected long asAmount(String value, String language, String country)
     {
-        return new PDFExchangeRate(asExchangeRate(data.get("exchangeRate")), //$NON-NLS-1$
+        return ExtractorUtils.convertToNumberLong(value, Values.Amount, language, country);
+    }
+
+    protected ExtrExchangeRate asExchangeRate(Map<String, String> data)
+    {
+        return new ExtrExchangeRate(asExchangeRate(data.get("exchangeRate")), //$NON-NLS-1$
                         asCurrencyCode(data.get("baseCurrency")), //$NON-NLS-1$
                         asCurrencyCode(data.get("termCurrency"))); //$NON-NLS-1$
     }
@@ -263,29 +339,29 @@ public abstract class AbstractPDFExtractor implements Extractor
 
     protected LocalDateTime asDate(String value, Locale... hints)
     {
-        return PDFExtractorUtils.asDate(value, hints);
+        return ExtractorUtils.asDate(value, hints);
     }
 
     protected LocalTime asTime(String value)
     {
-        return PDFExtractorUtils.asTime(value);
+        return ExtractorUtils.asTime(value);
     }
 
     protected LocalDateTime asDate(String date, String time)
     {
-        return PDFExtractorUtils.asDate(date, time);
+        return ExtractorUtils.asDate(date, time);
     }
 
     protected void processTaxEntries(Object t, Map<String, String> v, DocumentType type)
     {
         Money tax = Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("tax"))); //$NON-NLS-1$ //$NON-NLS-2$
-        PDFExtractorUtils.checkAndSetTax(tax, t, type);
+        ExtractorUtils.checkAndSetTax(tax, t, type.getCurrentContext());
     }
 
     protected void processFeeEntries(Object t, Map<String, String> v, DocumentType type)
     {
         Money fee = Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("fee"))); //$NON-NLS-1$ //$NON-NLS-2$
-        PDFExtractorUtils.checkAndSetFee(fee, t, type);
+        ExtractorUtils.checkAndSetFee(fee, t, type.getCurrentContext());
     }
 
     /**
@@ -311,14 +387,14 @@ public abstract class AbstractPDFExtractor implements Extractor
                     throw new IllegalArgumentException(
                                     "processing of withholding taxes must be done before creditable withholding taxes"); //$NON-NLS-1$
 
-                PDFExtractorUtils.checkAndSetTax(tax, t, type);
+                ExtractorUtils.checkAndSetTax(tax, t, type.getCurrentContext());
                 data.getTransactionContext().putBoolean(taxType, true);
                 return;
 
             case "creditableWithHoldingTax": //$NON-NLS-1$
                 if (!data.getTransactionContext().getBoolean("withHoldingTax")) //$NON-NLS-1$
                 {
-                    PDFExtractorUtils.checkAndSetTax(tax, t, type);
+                    ExtractorUtils.checkAndSetTax(tax, t, type.getCurrentContext());
                     data.getTransactionContext().putBoolean(taxType, true);
                 }
                 return;

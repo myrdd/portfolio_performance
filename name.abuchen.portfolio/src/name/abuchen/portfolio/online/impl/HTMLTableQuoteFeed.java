@@ -30,7 +30,6 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 import org.jsoup.Jsoup;
-import org.jsoup.UncheckedIOException;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.safety.Safelist;
@@ -195,6 +194,7 @@ public class HTMLTableQuoteFeed implements QuoteFeed
                             DateTimeFormatter.ofPattern("d MMM y", Locale.ENGLISH), //$NON-NLS-1$
                             DateTimeFormatter.ofPattern("EEEE, MMMM dd, yEEE, MMM dd, y", Locale.ENGLISH), //$NON-NLS-1$
                             DateTimeFormatter.ofPattern("yyyy.MM.dd."), //$NON-NLS-1$
+                            DateTimeFormatter.ofPattern("M/d/yyyy"), //$NON-NLS-1$
             };
         }
 
@@ -481,7 +481,7 @@ public class HTMLTableQuoteFeed implements QuoteFeed
             data.addError(e);
             return new Pair<>(String.valueOf(e.getMessage()), Collections.emptyList());
         }
-        catch (URISyntaxException | IOException | UncheckedIOException e)
+        catch (URISyntaxException | IOException e)
         {
             data.addError(new IOException(url + '\n' + e.getMessage(), e));
             return new Pair<>(String.valueOf(e.getMessage()), Collections.emptyList());

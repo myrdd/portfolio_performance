@@ -3,7 +3,7 @@ package name.abuchen.portfolio.ui.views.taxonomy;
 import java.text.MessageFormat;
 import java.time.LocalDate;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.Separator;
@@ -165,7 +165,7 @@ public class ReBalancingViewer extends AbstractNodeTreeViewer
                 TaxonomyNode node = (TaxonomyNode) element;
                 if (node.getTarget() == null)
                     return null;
-                return node.getActual().isGreaterOrEqualThan(node.getTarget()) ? Colors.theme().greenForeground()
+                return node.getActual().isGreaterOrEqualTo(node.getTarget()) ? Colors.theme().greenForeground()
                                 : Colors.theme().redForeground();
             }
         });
@@ -233,7 +233,7 @@ public class ReBalancingViewer extends AbstractNodeTreeViewer
                 TaxonomyNode node = (TaxonomyNode) element;
                 if (node.getTarget() == null)
                     return null;
-                return node.getActual().isGreaterOrEqualThan(node.getTarget()) ? Colors.theme().greenForeground()
+                return node.getActual().isGreaterOrEqualTo(node.getTarget()) ? Colors.theme().greenForeground()
                                 : Colors.theme().redForeground();
             }
         });

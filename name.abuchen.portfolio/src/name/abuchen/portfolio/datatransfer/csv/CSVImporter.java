@@ -25,6 +25,9 @@ import java.text.NumberFormat;
 import java.text.ParseException;
 import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
+import java.time.chrono.IsoChronology;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -146,10 +149,10 @@ public final class CSVImporter
 
         public String toPattern()
         {
-            if (format instanceof SimpleDateFormat)
-                return ((SimpleDateFormat) format).toPattern();
-            else if (format instanceof DecimalFormat)
-                return ((DecimalFormat) format).toPattern();
+            if (format instanceof SimpleDateFormat dateFormat)
+                return dateFormat.toPattern();
+            else if (format instanceof DecimalFormat decimalFormat)
+                return decimalFormat.toPattern();
             else if (format instanceof ISINFormat)
                 return Isin.PATTERN;
             else if (format instanceof EnumMapFormat)
@@ -276,8 +279,10 @@ public final class CSVImporter
                         new DateFieldFormat(Messages.CSVFormatMMDDYY, "MM-dd-yy"), //$NON-NLS-1$
                         new DateFieldFormat(Messages.CSVFormatMMDDYYYY, "MM-dd-yyyy"), //$NON-NLS-1$
                         new DateFieldFormat(Messages.CSVFormatDDMMMYYYY, "dd-MMM-yyyy"), // NOSONAR //$NON-NLS-1$
+                        new DateFieldFormat(Messages.CSVFormatMMMDDYYYY, "MMM dd, yyyy"), //$NON-NLS-1$
                         new DateFieldFormat(Messages.CSVFormatDDMMMYYYY_German, "dd-MMM-yyyy", Locale.GERMAN), //$NON-NLS-1$
-                        new DateFieldFormat(Messages.CSVFormatDDMMMYYYY_English, "dd-MMM-yyyy", Locale.US) //$NON-NLS-1$
+                        new DateFieldFormat(Messages.CSVFormatDDMMMYYYY_English, "dd-MMM-yyyy", Locale.US), //$NON-NLS-1$
+                        new DateFieldFormat(Messages.CSVFormatYYYYMM, "yyyy-MM") //$NON-NLS-1$
         ));
 
         /* package */ DateField(String code, String name)
@@ -301,6 +306,33 @@ public final class CSVImporter
         @Override
         public FieldFormat guessFormat(Client client, String value)
         {
+            // for now, the list of supported data pattern is fixed. Therefore
+            // we cannot easily select the locale-specific pattern. Instead, we
+            // normalize the pattern and check if the pattern happens to exist
+
+            String dateFormatPattern = getNormalizedLocalizedPattern();
+
+            for (FieldFormat f : FORMATS)
+            {
+                if (dateFormatPattern.equals(f.getCode()))
+                {
+                    if (value == null)
+                        return f;
+
+                    // check if the first value matches
+                    try
+                    {
+                        // try to parse the value and return it on success
+                        f.format.parseObject(value);
+                        return f;
+                    }
+                    catch (ParseException e)
+                    {
+                        // ignore, try next pattern
+                    }
+                }
+            }
+
             if (value != null)
             {
                 for (FieldFormat f : FORMATS)
@@ -319,6 +351,36 @@ public final class CSVImporter
             }
             // fallback
             return FORMATS.get(0);
+        }
+
+        private String getNormalizedLocalizedPattern()
+        {
+            String dateFormatPattern = DateTimeFormatterBuilder.getLocalizedDateTimePattern(FormatStyle.SHORT, null,
+                            IsoChronology.INSTANCE, Locale.getDefault());
+
+            // make sure d (day) and M (month) are at least two characters to
+            // better match the predefined pattern
+
+            dateFormatPattern = duplicateChar(dateFormatPattern, 'd');
+            dateFormatPattern = duplicateChar(dateFormatPattern, 'M');
+            return dateFormatPattern;
+        }
+
+        private String duplicateChar(String pattern, char character)
+        {
+            int count = 0;
+            int position = -1;
+
+            for (int i = 0; i < pattern.length(); i++)
+            {
+                if (pattern.charAt(i) == character)
+                {
+                    count++;
+                    position = i;
+                }
+            }
+
+            return count == 1 ? pattern.substring(0, position) + character + pattern.substring(position) : pattern;
         }
 
         @Override
@@ -347,6 +409,12 @@ public final class CSVImporter
                                         NumberFormat.getInstance(Locale.GERMANY)),
                         new FieldFormat("0,000.00", Messages.CSVFormatNumberUS, //$NON-NLS-1$
                                         NumberFormat.getInstance(Locale.US)),
+                        new FieldFormat("0 000,00", Messages.CSVFormatNumberFrance, () -> { //$NON-NLS-1$
+                            DecimalFormatSymbols unusualSymbols = new DecimalFormatSymbols(Locale.FRANCE);
+                            unusualSymbols.setDecimalSeparator(',');
+                            unusualSymbols.setGroupingSeparator(' ');
+                            return new DecimalFormat("#,##0.###", unusualSymbols); //$NON-NLS-1$
+                        }),
                         new FieldFormat("0'000,00", Messages.CSVFormatApostrophe, () -> { //$NON-NLS-1$
                             DecimalFormatSymbols unusualSymbols = new DecimalFormatSymbols(Locale.US);
                             unusualSymbols.setGroupingSeparator('\'');
@@ -371,8 +439,10 @@ public final class CSVImporter
             // arbitrary number format patterns, map it to the available FORMAT
             // objects
 
-            if ("CH".equals(Locale.getDefault().getCountry())) //$NON-NLS-1$
+            if ("FR".equals(Locale.getDefault().getCountry())) //$NON-NLS-1$
                 return FORMATS.get(2);
+            if ("CH".equals(Locale.getDefault().getCountry())) //$NON-NLS-1$
+                return FORMATS.get(3);
             if (TextUtil.DECIMAL_SEPARATOR == ',')
                 return FORMATS.get(0);
             if (TextUtil.DECIMAL_SEPARATOR == '.')

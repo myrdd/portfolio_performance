@@ -1,5 +1,25 @@
 package name.abuchen.portfolio.datatransfer.pdf.limetradingcorp;
 
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.dividend;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasAmount;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasCurrencyCode;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasDate;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasFees;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasGrossValue;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasIsin;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasName;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasNote;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasShares;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasSource;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasTaxes;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasTicker;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasWkn;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.security;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.taxRefund;
+import static name.abuchen.portfolio.datatransfer.ExtractorTestUtilities.countAccountTransactions;
+import static name.abuchen.portfolio.datatransfer.ExtractorTestUtilities.countBuySell;
+import static name.abuchen.portfolio.datatransfer.ExtractorTestUtilities.countSecurities;
+import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.collection.IsEmptyCollection.empty;
@@ -7,10 +27,12 @@ import static org.junit.Assert.assertNull;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 import org.junit.Test;
 
+import name.abuchen.portfolio.datatransfer.Extractor;
 import name.abuchen.portfolio.datatransfer.Extractor.BuySellEntryItem;
 import name.abuchen.portfolio.datatransfer.Extractor.Item;
 import name.abuchen.portfolio.datatransfer.Extractor.SecurityItem;
@@ -31,61 +53,57 @@ import name.abuchen.portfolio.money.Values;
 @SuppressWarnings("nls")
 public class LimeTradingCorpPDFExtractorTest
 {
-    /***
-     * Information:
-     * Lime Trading Corp. is a US-based financial services company.
-     * The currency is US$.
-     * 
-     * All security currencies are USD.
-     * 
-     * CUSIP Number:
-     * The CUSIP number is the WKN number.
-     * 
-     * Dividend transactions:
-     * The amount of dividends is reported in gross.
-     */
-
     @Test
     public void testAccountStatement01()
     {
         LimeTradingCorpPDFExtractor extractor = new LimeTradingCorpPDFExtractor(new Client());
 
-        List<Exception> errors = new ArrayList<Exception>();
+        List<Exception> errors = new ArrayList<>();
 
         List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "AccountStatement01.txt"), errors);
 
         assertThat(errors, empty());
-        assertThat(results.size(), is(14));
+        assertThat(results.size(), is(15));
         new AssertImportActions().check(results, CurrencyUnit.USD);
 
         // check security
         Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertNull(security1.getIsin());
         assertThat(security1.getWkn(), is("067901108"));
+        assertNull(security1.getTickerSymbol());
         assertThat(security1.getName(), is("Barrick Gold Corp Com"));
         assertThat(security1.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security2 = results.stream().filter(SecurityItem.class::isInstance).skip(1).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertNull(security2.getIsin());
         assertThat(security2.getWkn(), is("78463V107"));
+        assertNull(security2.getTickerSymbol());
         assertThat(security2.getName(), is("Spdr Gold Trust Gold Shs"));
         assertThat(security2.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security3 = results.stream().filter(SecurityItem.class::isInstance).skip(2).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertNull(security3.getIsin());
         assertThat(security3.getWkn(), is("922908363"));
+        assertNull(security3.getTickerSymbol());
         assertThat(security3.getName(), is("Vanguard Index Fds S P 500 Etf Shs"));
         assertThat(security3.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security4 = results.stream().filter(SecurityItem.class::isInstance).skip(3).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertNull(security4.getIsin());
         assertThat(security4.getWkn(), is("756109104"));
+        assertNull(security4.getTickerSymbol());
         assertThat(security4.getName(), is("Realty Income C"));
         assertThat(security4.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security5 = results.stream().filter(SecurityItem.class::isInstance).skip(4).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertNull(security5.getIsin());
         assertThat(security5.getWkn(), is("922042742"));
+        assertNull(security5.getTickerSymbol());
         assertThat(security5.getName(), is("Vanguard Intl E"));
         assertThat(security5.getCurrencyCode(), is(CurrencyUnit.USD));
 
@@ -253,24 +271,125 @@ public class LimeTradingCorpPDFExtractorTest
         assertThat(transaction.getUnitSum(Unit.Type.FEE),
                         is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(0.00))));
 
-        // check interest transaction
-        transaction = (AccountTransaction) results.stream().filter(TransactionItem.class::isInstance).skip(4)
-                        .findFirst().orElseThrow(IllegalArgumentException::new).getSubject();
+        // check transaction
+        Iterator<Extractor.Item> iter = results.stream().filter(TransactionItem.class::isInstance).skip(4).iterator();
+        assertThat(results.stream().filter(TransactionItem.class::isInstance).count(), is(6L));
 
-        assertThat(transaction.getType(), is(AccountTransaction.Type.INTEREST));
+        Item item = iter.next();
 
-        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2022-03-31T00:00")));
-        assertThat(transaction.getShares(), is(Values.Share.factorize(0)));
+        // assert transaction
+        transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2022-03-01T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(9000.00))));
         assertThat(transaction.getSource(), is("AccountStatement01.txt"));
         assertNull(transaction.getNote());
 
-        assertThat(transaction.getMonetaryAmount(),
-                        is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(0.19))));
-        assertThat(transaction.getGrossValue(),
-                        is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(0.19))));
-        assertThat(transaction.getUnitSum(Unit.Type.TAX),
-                        is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(0.00))));
-        assertThat(transaction.getUnitSum(Unit.Type.FEE),
-                        is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(0.00))));
+        item = iter.next();
+
+        // assert transaction
+        transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.INTEREST));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2022-03-31T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(0.19))));
+        assertThat(transaction.getSource(), is("AccountStatement01.txt"));
+        assertNull(transaction.getNote());
+    }
+
+    @Test
+    public void testAccountStatement02()
+    {
+        LimeTradingCorpPDFExtractor extractor = new LimeTradingCorpPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "AccountStatement02.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(4L));
+        assertThat(countBuySell(results), is(0L));
+        assertThat(countAccountTransactions(results), is(7L));
+        assertThat(results.size(), is(11));
+        new AssertImportActions().check(results, CurrencyUnit.USD);
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin(null), hasWkn("756109104"), hasTicker(null), //
+                        hasName("Realty Income C"), //
+                        hasCurrencyCode("USD"))));
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin(null), hasWkn("29273V100"), hasTicker(null), //
+                        hasName("Energy Transfer"), //
+                        hasCurrencyCode("USD"))));
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin(null), hasWkn("12485U102"), hasTicker(null), //
+                        hasName("Cboe Oil Index-reduced Value"), //
+                        hasCurrencyCode("USD"))));
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin(null), hasWkn("922042742"), hasTicker(null), //
+                        hasName("Vanguard Intl Equity Index Fd"), //
+                        hasCurrencyCode("USD"))));
+
+        // check dividend transaction
+        assertThat(results, hasItem(dividend( //
+                        hasDate("2023-08-15T00:00"), hasShares(24.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote(null), //
+                        hasAmount("USD", 5.21), hasGrossValue("USD", 6.13), //
+                        hasTaxes("USD", 0.92), hasFees("USD", 0.00))));
+
+        // check dividend transaction
+        assertThat(results, hasItem(dividend( //
+                        hasDate("2023-08-21T00:00"), hasShares(200.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote(null), //
+                        hasAmount("USD", 39.06), hasGrossValue("USD", 62.00), //
+                        hasTaxes("USD", 22.94), hasFees("USD", 0.00))));
+
+        // check taxes transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-08-31T00:00"), hasShares(0.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote("Withholding Adjustment"), //
+                        hasAmount("USD", 23.43), hasGrossValue("USD", 23.43), //
+                        hasTaxes("USD", 0.00), hasFees("USD", 0.00))));
+
+        // check taxes transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-08-31T00:00"), hasShares(0.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote("Withholding Adjustment"), //
+                        hasAmount("USD", 9.15), hasGrossValue("USD", 9.15), //
+                        hasTaxes("USD", 0.00), hasFees("USD", 0.00))));
+
+        // check taxes transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-08-31T00:00"), hasShares(0.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote("Withholding Adjustment"), //
+                        hasAmount("USD", 1.79), hasGrossValue("USD", 1.79), //
+                        hasTaxes("USD", 0.00), hasFees("USD", 0.00))));
+
+        // check taxes transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-08-31T00:00"), hasShares(0.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote("Withholding Adjustment"), //
+                        hasAmount("USD", 0.92), hasGrossValue("USD", 0.92), //
+                        hasTaxes("USD", 0.00), hasFees("USD", 0.00))));
+
+        // check taxes transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-08-31T00:00"), hasShares(0.00), //
+                        hasSource("AccountStatement02.txt"), //
+                        hasNote("Withholding Adjustment"), //
+                        hasAmount("USD", 0.52), hasGrossValue("USD", 0.52), //
+                        hasTaxes("USD", 0.00), hasFees("USD", 0.00))));
     }
 }

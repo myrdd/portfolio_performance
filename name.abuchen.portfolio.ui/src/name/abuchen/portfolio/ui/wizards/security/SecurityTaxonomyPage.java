@@ -156,7 +156,7 @@ public class SecurityTaxonomyPage extends AbstractPage
     {
         LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources(), parent);
 
-        boldFont = resources.createFont(FontDescriptor.createFrom(parent.getFont()).setStyle(SWT.BOLD));
+        boldFont = resources.create(FontDescriptor.createFrom(parent.getFont()).setStyle(SWT.BOLD));
 
         scrolledComposite = new ScrolledComposite(parent, SWT.H_SCROLL | SWT.V_SCROLL);
         setControl(scrolledComposite);
@@ -273,8 +273,8 @@ public class SecurityTaxonomyPage extends AbstractPage
         // invalid bindings and error messages
         for (ValidationStatusProvider validator : validators)
         {
-            if (validator instanceof Binding)
-                bindings.getBindingContext().removeBinding((Binding) validator);
+            if (validator instanceof Binding binding)
+                bindings.getBindingContext().removeBinding(binding);
             else
                 bindings.getBindingContext().removeValidationStatusProvider(validator);
         }

@@ -7,8 +7,9 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuManager;
@@ -36,8 +37,10 @@ import name.abuchen.portfolio.model.AccountTransferEntry;
 import name.abuchen.portfolio.model.Adaptor;
 import name.abuchen.portfolio.model.BuySellEntry;
 import name.abuchen.portfolio.model.Client;
+import name.abuchen.portfolio.model.CrossEntry;
 import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Transaction;
+import name.abuchen.portfolio.model.Transaction.Unit;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.money.MutableMoney;
 import name.abuchen.portfolio.money.Quote;
@@ -106,9 +109,8 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
     @Override
     public void onModified(Object element, Object newValue, Object oldValue)
     {
-        if (element instanceof AccountTransaction)
+        if (element instanceof AccountTransaction t)
         {
-            AccountTransaction t = (AccountTransaction) element;
             if (t.getCrossEntry() != null)
                 t.getCrossEntry().updateFrom(t);
             view.markDirty();
@@ -129,13 +131,17 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
         ColumnEditingSupport.prepare(transactions);
         CopyPasteSupport.enableFor(transactions);
 
+        // needed for virtual tables as otherwise the in-place editing does not
+        // update elements properly
+        transactions.setUseHashlookup(true);
+
         transactionsColumns = new ShowHideColumnHelper(AccountListView.class.getSimpleName() + "@bottom5", //$NON-NLS-1$
                         view.getPreferenceStore(), transactions, layout);
 
         Column column = new Column("0", Messages.ColumnDate, SWT.None, 80); //$NON-NLS-1$
         column.setLabelProvider(new DateTimeLabelProvider(e -> ((AccountTransaction) e).getDateTime())
         {
-             @Override
+            @Override
             public Color getForeground(Object element)
             {
                 return colorFor((AccountTransaction) element);
@@ -197,6 +203,62 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
         }));
         transactionsColumns.addColumn(column);
 
+        column = new Column("fees", Messages.ColumnFees, SWT.RIGHT, 80); //$NON-NLS-1$
+        Function<AccountTransaction, Money> getFees = tx -> {
+            // fees are stored with the portfolio transaction (for example
+            // purchase and sale)
+            CrossEntry entry = tx.getCrossEntry();
+            if (entry != null && entry.getCrossTransaction(tx) instanceof PortfolioTransaction)
+                return entry.getCrossTransaction(tx).getUnitSum(Unit.Type.FEE);
+
+            return tx.getUnitSum(Unit.Type.FEE);
+        };
+        column.setLabelProvider(new ColumnLabelProvider()
+        {
+            @Override
+            public String getText(Object e)
+            {
+                return Values.Money.format(getFees.apply((AccountTransaction) e), client.getBaseCurrency());
+            }
+
+            @Override
+            public Color getForeground(Object element)
+            {
+                return colorFor((AccountTransaction) element);
+            }
+        });
+        ColumnViewerSorter.create(element -> getFees.apply((AccountTransaction) element)).attachTo(column);
+        column.setVisible(false);
+        transactionsColumns.addColumn(column);
+
+        column = new Column("taxes", Messages.ColumnTaxes, SWT.RIGHT, 80); //$NON-NLS-1$
+        Function<AccountTransaction, Money> getTaxes = tx -> {
+            // taxes are stored with the portfolio transaction (for example
+            // purchase and sale)
+            CrossEntry entry = tx.getCrossEntry();
+            if (entry != null && entry.getCrossTransaction(tx) instanceof PortfolioTransaction)
+                return entry.getCrossTransaction(tx).getUnitSum(Unit.Type.TAX);
+
+            return tx.getUnitSum(Unit.Type.TAX);
+        };
+        column.setLabelProvider(new ColumnLabelProvider()
+        {
+            @Override
+            public String getText(Object e)
+            {
+                return Values.Money.format(getTaxes.apply((AccountTransaction) e), client.getBaseCurrency());
+            }
+
+            @Override
+            public Color getForeground(Object element)
+            {
+                return colorFor((AccountTransaction) element);
+            }
+        });
+        ColumnViewerSorter.create(element -> getTaxes.apply((AccountTransaction) element)).attachTo(column);
+        column.setVisible(false);
+        transactionsColumns.addColumn(column);
+
         column = new Column("3", Messages.Balance, SWT.RIGHT, 80); //$NON-NLS-1$
         column.setLabelProvider(new ColumnLabelProvider()
         {
@@ -205,6 +267,12 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
             {
                 Money balance = transaction2balance.get(e);
                 return balance != null ? Values.Money.format(balance, client.getBaseCurrency()) : null;
+            }
+
+            @Override
+            public Color getForeground(Object element)
+            {
+                return colorFor((AccountTransaction) element);
             }
         });
 
@@ -263,9 +331,9 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
             public Long getValue(Object e)
             {
                 AccountTransaction t = (AccountTransaction) e;
-                if (t.getCrossEntry() instanceof BuySellEntry)
+                if (t.getCrossEntry() instanceof BuySellEntry entry)
                 {
-                    return ((BuySellEntry) t.getCrossEntry()).getPortfolioTransaction().getShares();
+                    return entry.getPortfolioTransaction().getShares();
                 }
                 else if (t.getType() == Type.DIVIDENDS && t.getShares() != 0)
                 {
@@ -296,9 +364,9 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
 
         column = new CalculatedQuoteColumn("6", client, e -> { //$NON-NLS-1$
             AccountTransaction t = (AccountTransaction) e;
-            if (t.getCrossEntry() instanceof BuySellEntry)
+            if (t.getCrossEntry() instanceof BuySellEntry entry)
             {
-                PortfolioTransaction pt = ((BuySellEntry) t.getCrossEntry()).getPortfolioTransaction();
+                PortfolioTransaction pt = entry.getPortfolioTransaction();
                 return pt.getGrossPricePerShare();
             }
             else if (t.getType() == Type.DIVIDENDS && t.getShares() != 0)
@@ -361,7 +429,7 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
                 return colorFor((AccountTransaction) element);
             }
         });
-        ColumnViewerSorter.create(e -> ((AccountTransaction) e).getSource()).attachTo(column); // $NON-NLS-1$
+        ColumnViewerSorter.createIgnoreCase(e -> ((AccountTransaction) e).getSource()).attachTo(column); // $NON-NLS-1$
         transactionsColumns.addColumn(column);
 
         transactionsColumns.createColumns(true);
@@ -427,6 +495,9 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
             Action action = createEditAction(account, transaction);
             action.setAccelerator(SWT.MOD1 | 'E');
             manager.add(action);
+
+            manager.add(createCopyAction(account, transaction));
+
             manager.add(new Separator());
         }
 
@@ -492,16 +563,14 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
     private Action createEditAction(Account account, AccountTransaction transaction)
     {
         // buy / sell
-        if (transaction.getCrossEntry() instanceof BuySellEntry)
+        if (transaction.getCrossEntry() instanceof BuySellEntry entry)
         {
-            BuySellEntry entry = (BuySellEntry) transaction.getCrossEntry();
             return new OpenDialogAction(view, Messages.MenuEditTransaction)
                             .type(SecurityTransactionDialog.class, d -> d.setBuySellEntry(entry))
                             .parameters(entry.getPortfolioTransaction().getType());
         }
-        else if (transaction.getCrossEntry() instanceof AccountTransferEntry)
+        else if (transaction.getCrossEntry() instanceof AccountTransferEntry entry)
         {
-            AccountTransferEntry entry = (AccountTransferEntry) transaction.getCrossEntry();
             return new OpenDialogAction(view, Messages.MenuEditTransaction) //
                             .type(AccountTransferDialog.class, d -> d.setEntry(entry));
         }
@@ -509,6 +578,28 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
         {
             return new OpenDialogAction(view, Messages.MenuEditTransaction) //
                             .type(AccountTransactionDialog.class, d -> d.setTransaction(account, transaction)) //
+                            .parameters(transaction.getType());
+        }
+    }
+
+    private Action createCopyAction(Account account, AccountTransaction transaction)
+    {
+        // buy / sell
+        if (transaction.getCrossEntry() instanceof BuySellEntry entry)
+        {
+            return new OpenDialogAction(view, Messages.MenuDuplicateTransaction)
+                            .type(SecurityTransactionDialog.class, d -> d.presetBuySellEntry(entry))
+                            .parameters(entry.getPortfolioTransaction().getType());
+        }
+        else if (transaction.getCrossEntry() instanceof AccountTransferEntry entry)
+        {
+            return new OpenDialogAction(view, Messages.MenuDuplicateTransaction) //
+                            .type(AccountTransferDialog.class, d -> d.presetEntry(entry));
+        }
+        else
+        {
+            return new OpenDialogAction(view, Messages.MenuDuplicateTransaction) //
+                            .type(AccountTransactionDialog.class, d -> d.presetTransaction(account, transaction)) //
                             .parameters(transaction.getType());
         }
     }
@@ -549,28 +640,10 @@ public class AccountTransactionsPane implements InformationPanePage, Modificatio
         MutableMoney balance = MutableMoney.of(account.getCurrencyCode());
         for (AccountTransaction t : tx)
         {
-            switch (t.getType())
-            {
-                case DEPOSIT:
-                case INTEREST:
-                case DIVIDENDS:
-                case TAX_REFUND:
-                case SELL:
-                case TRANSFER_IN:
-                case FEES_REFUND:
-                    balance.add(t.getMonetaryAmount());
-                    break;
-                case REMOVAL:
-                case FEES:
-                case INTEREST_CHARGE:
-                case TAXES:
-                case BUY:
-                case TRANSFER_OUT:
-                    balance.subtract(t.getMonetaryAmount());
-                    break;
-                default:
-                    throw new IllegalArgumentException();
-            }
+            if (t.getType().isCredit())
+                balance.add(t.getMonetaryAmount());
+            else
+                balance.subtract(t.getMonetaryAmount());
 
             transaction2balance.put(t, balance.toMoney());
         }

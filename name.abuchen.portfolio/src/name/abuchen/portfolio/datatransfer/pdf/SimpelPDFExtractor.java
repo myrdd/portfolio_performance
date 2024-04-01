@@ -5,6 +5,7 @@ import static name.abuchen.portfolio.util.TextUtil.trim;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
+import name.abuchen.portfolio.datatransfer.ExtractorUtils;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.Block;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.DocumentType;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.Transaction;
@@ -19,7 +20,7 @@ import name.abuchen.portfolio.money.Values;
 public class SimpelPDFExtractor extends AbstractPDFExtractor
 {
     /***
-     * Information: 
+     * Information:
      * The currency of Simpel S.A. is always EUR.
      */
 
@@ -60,7 +61,7 @@ public class SimpelPDFExtractor extends AbstractPDFExtractor
                 .section("type").optional()
                 .match("^([\\s]+)?(?<type>(Kauf|Verkauf)) .*$")
                 .assign((t, v) -> {
-                    if (v.get("type").equals("Verkauf"))
+                    if ("Verkauf".equals(v.get("type")))
                     {
                         t.setType(PortfolioTransaction.Type.SELL);
                     }
@@ -157,8 +158,9 @@ public class SimpelPDFExtractor extends AbstractPDFExtractor
                 .assign((t, v) -> t.setDateTime(asDate(v.get("date"))))
 
                 // Zur Wiederveranlagung zur Verfügung stehend: 13.30
+                // Zur Wiederanlage/Auszahlung zur Verfügung stehend: 173.37
                 .section("amount")
-                .match("^Zur Wiederveranlagung zur Verf.gung stehend: (?<amount>['\\.\\d]+)$")
+                .match("^Zur (Wiederveranlagung|Wiederanlage/Auszahlung) zur Verf.gung stehend: (?<amount>['\\.\\d]+)$")
                 .assign((t, v) -> {
                     t.setAmount(asAmount(v.get("amount")));
                     t.setCurrencyCode(asCurrencyCode(CurrencyUnit.EUR));
@@ -193,19 +195,18 @@ public class SimpelPDFExtractor extends AbstractPDFExtractor
     @Override
     protected long asAmount(String value)
     {
-        return PDFExtractorUtils.convertToNumberLong(value, Values.Amount, "de", "CH");
+        return ExtractorUtils.convertToNumberLong(value, Values.Amount, "de", "CH");
     }
 
     @Override
     protected long asShares(String value)
     {
-        value = value.trim().replaceAll("\\s", "");
-        return PDFExtractorUtils.convertToNumberLong(value, Values.Share, "de", "CH");
+        return ExtractorUtils.convertToNumberLong(value, Values.Share, "de", "CH");
     }
 
     @Override
     protected BigDecimal asExchangeRate(String value)
     {
-        return PDFExtractorUtils.convertToNumberBigDecimal(value, Values.Share, "de", "CH");
+        return ExtractorUtils.convertToNumberBigDecimal(value, Values.Share, "de", "CH");
     }
 }

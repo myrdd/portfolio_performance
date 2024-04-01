@@ -42,9 +42,12 @@ import org.eclipse.ui.forms.events.HyperlinkEvent;
 import org.eclipse.ui.forms.widgets.ImageHyperlink;
 import org.swtchart.LineStyle;
 
+import name.abuchen.portfolio.model.Classification;
+import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.util.SimpleAction;
+import name.abuchen.portfolio.util.TextUtil;
 
 /**
  * A legend for charts to configure data series, e.g. color, area fill, and line
@@ -137,6 +140,13 @@ public class DataSeriesChartLegend extends Composite implements ISelectionProvid
             menuManager.setRemoveAllWhenShown(true);
             menuManager.addMenuListener(this::seriesMenuAboutToShow);
             setMenu(menuManager.createContextMenu(this));
+
+            if (series.getInstance() instanceof Security security)
+                setToolTipText(TextUtil.wordwrap(security.toInfoString()));
+            else if (series.getInstance() instanceof Classification classification)
+                setToolTipText(classification.getPathName(true));
+            else
+                setToolTipText(series.getLabel());
         }
 
         @Override
@@ -489,8 +499,8 @@ public class DataSeriesChartLegend extends Composite implements ISelectionProvid
             int index = 0;
             for (int ii = 0; ii < children.length; ii++)
             {
-                if (children[ii] instanceof PaintItem)
-                    answer[index++] = (PaintItem) children[ii];
+                if (children[ii] instanceof PaintItem paintItem)
+                    answer[index++] = paintItem;
             }
 
             return answer;

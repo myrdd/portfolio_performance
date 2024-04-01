@@ -2,7 +2,7 @@ package issues;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.isIn;
+import static org.hamcrest.Matchers.in;
 
 import java.io.IOException;
 import java.time.LocalDate;
@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import name.abuchen.portfolio.TestCurrencyConverter;
+import name.abuchen.portfolio.junit.TestCurrencyConverter;
 import name.abuchen.portfolio.model.AccountTransaction;
 import name.abuchen.portfolio.model.Classification;
 import name.abuchen.portfolio.model.Client;
@@ -68,8 +68,8 @@ public class Issue1897AddFeesToDividendTransactionsTest
 
         assertThat(feesCategory.getValuation(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(10.0 + 5.0))));
         assertThat(snapshot.getFees().size(), is(2));
-        assertThat(tx, isIn(snapshot.getFees().stream().map(pair -> (Transaction) pair.getTransaction())
-                        .collect(Collectors.toList())));
+        assertThat(tx, is(in(snapshot.getFees().stream().map(pair -> (Transaction) pair.getTransaction())
+                        .collect(Collectors.toList()))));
 
         ClientPerformanceSnapshotTest.assertThatCalculationWorksOut(snapshot, converter);
     }

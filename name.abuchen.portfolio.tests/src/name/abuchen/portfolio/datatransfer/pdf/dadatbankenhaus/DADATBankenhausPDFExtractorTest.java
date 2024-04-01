@@ -1,5 +1,29 @@
 package name.abuchen.portfolio.datatransfer.pdf.dadatbankenhaus;
 
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.check;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.dividend;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasAmount;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasCurrencyCode;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasDate;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasFees;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasForexGrossValue;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasGrossValue;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasIsin;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasName;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasNote;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasShares;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasSource;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasTaxes;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasTicker;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.hasWkn;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.purchase;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.sale;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.security;
+import static name.abuchen.portfolio.datatransfer.ExtractorMatchers.taxRefund;
+import static name.abuchen.portfolio.datatransfer.ExtractorTestUtilities.countAccountTransactions;
+import static name.abuchen.portfolio.datatransfer.ExtractorTestUtilities.countBuySell;
+import static name.abuchen.portfolio.datatransfer.ExtractorTestUtilities.countSecurities;
+import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.collection.IsEmptyCollection.empty;
@@ -12,6 +36,7 @@ import java.util.List;
 
 import org.junit.Test;
 
+import name.abuchen.portfolio.Messages;
 import name.abuchen.portfolio.datatransfer.Extractor;
 import name.abuchen.portfolio.datatransfer.Extractor.BuySellEntryItem;
 import name.abuchen.portfolio.datatransfer.Extractor.Item;
@@ -53,6 +78,8 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("US09247X1019"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("B L A C K R O C K  I NC. Reg. Shares Class A DL -,01"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.EUR));
 
@@ -66,7 +93,7 @@ public class DADATBankenhausPDFExtractorTest
         assertThat(entry.getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-02-17T20:49:54")));
         assertThat(entry.getPortfolioTransaction().getShares(), is(Values.Share.factorize(3)));
         assertThat(entry.getSource(), is("Kauf01.txt"));
-        assertNull(entry.getNote());
+        assertThat(entry.getNote(), is("Auftrags-Nr.: 45247499-17.2.2021"));
 
         assertThat(entry.getPortfolioTransaction().getMonetaryAmount(),
                         is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(1800.00))));
@@ -76,6 +103,304 @@ public class DADATBankenhausPDFExtractorTest
                         is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
         assertThat(entry.getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
                         is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+    }
+
+    @Test
+    public void testWertpapierKauf02()
+    {
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Kauf02.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(1L));
+        assertThat(countBuySell(results), is(1L));
+        assertThat(countAccountTransactions(results), is(0L));
+        assertThat(results.size(), is(2));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin("NL0011794037"), hasWkn(null), hasTicker(null), //
+                        hasName("AHOLD DELHAIZE,KON.EO-,01"), //
+                        hasCurrencyCode("EUR"))));
+
+        // check buy sell transaction
+        assertThat(results, hasItem(purchase( //
+                        hasDate("2023-12-27T00:00"), hasShares(40.00), //
+                        hasSource("Kauf02.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 1053.18), hasGrossValue("EUR", 1046.40), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 6.78))));
+    }
+
+    @Test
+    public void testWertpapierStornoVerkauf01()
+    {
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "StornoKontoauszug01.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(results.size(), is(14));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check security
+        Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security1.getIsin(), is("US00206R1023"));
+        assertNull(security1.getWkn());
+        assertNull(security1.getTickerSymbol());
+        assertThat(security1.getName(), is("AT + T INC. DL 1"));
+        assertThat(security1.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        Security security2 = results.stream().filter(SecurityItem.class::isInstance).skip(1).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security2.getIsin(), is("US7427181091"));
+        assertNull(security2.getWkn());
+        assertNull(security2.getTickerSymbol());
+        assertThat(security2.getName(), is("PROCTER GAMBLE"));
+        assertThat(security2.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        Security security3 = results.stream().filter(SecurityItem.class::isInstance).skip(2).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security3.getIsin(), is("US5949181045"));
+        assertNull(security3.getWkn());
+        assertNull(security3.getTickerSymbol());
+        assertThat(security3.getName(), is("MICROSOFT DL-,00000625"));
+        assertThat(security3.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        Security security4 = results.stream().filter(SecurityItem.class::isInstance).skip(3).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security4.getIsin(), is("US1912161007"));
+        assertNull(security4.getWkn());
+        assertNull(security4.getTickerSymbol());
+        assertThat(security4.getName(), is("COCA-COLA CO. DL-,25"));
+        assertThat(security4.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        Security security5 = results.stream().filter(SecurityItem.class::isInstance).skip(4).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security5.getIsin(), is("US0378331005"));
+        assertNull(security5.getWkn());
+        assertNull(security5.getTickerSymbol());
+        assertThat(security5.getName(), is("APPLE INC."));
+        assertThat(security5.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        Security security6 = results.stream().filter(SecurityItem.class::isInstance).skip(5).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security6.getIsin(), is("US92826C8394"));
+        assertNull(security6.getWkn());
+        assertNull(security6.getTickerSymbol());
+        assertThat(security6.getName(), is("VISA INC. CL. A DL -,0001"));
+        assertThat(security6.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        Security security7 = results.stream().filter(SecurityItem.class::isInstance).skip(6).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security7.getIsin(), is("US4781601046"));
+        assertNull(security7.getWkn());
+        assertNull(security7.getTickerSymbol());
+        assertThat(security7.getName(), is("JOHNSON + JOHNSON DL 1"));
+        assertThat(security7.getCurrencyCode(), is(CurrencyUnit.USD));
+
+        // check 1st cancellation (Storno) transaction
+        BuySellEntryItem cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(2.91)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.45))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.45))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        Unit grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(81.86))));
+
+        // check 2nd cancellation (Storno) transaction
+        cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .skip(1).findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(0.57)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.16))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.16))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(82.08))));
+
+        // check 3rd cancellation (Storno) transaction
+        cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .skip(2).findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(0.28)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.04))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.04))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(82.04))));
+
+        // check 4th cancellation (Storno) transaction
+        cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .skip(3).findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(1.43)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.02))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(71.02))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(81.80))));
+
+        // check 5th cancellation (Storno) transaction
+        cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .skip(4).findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(0.55)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(70.82))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(70.82))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(81.73))));
+
+        // check 6th cancellation (Storno) transaction
+        cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .skip(5).findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(0.35)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(70.52))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(70.52))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(81.27))));
+
+        // check 7th cancellation (Storno) transaction
+        cancellation = (BuySellEntryItem) results.stream() //
+                        .filter(i -> i.isFailure()) //
+                        .filter(BuySellEntryItem.class::isInstance) //
+                        .skip(6).findFirst().orElseThrow(IllegalArgumentException::new);
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getType(), is(PortfolioTransaction.Type.BUY));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getAccountTransaction().getType(), is(AccountTransaction.Type.BUY));
+        assertThat(cancellation.getFailureMessage(), is(Messages.MsgErrorOrderCancellationUnsupported));
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getDateTime(), is(LocalDateTime.parse("2021-08-23T00:00")));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getShares(), is(Values.Share.factorize(0.46)));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getSource(), is("StornoKontoauszug01.txt"));
+        assertNull(((BuySellEntry) cancellation.getSubject()).getNote());
+
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(70.43))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(70.43))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction().getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        grossValueUnit = ((BuySellEntry) cancellation.getSubject()).getPortfolioTransaction()
+                        .getUnit(Unit.Type.GROSS_VALUE).orElseThrow(IllegalArgumentException::new);
+        assertThat(grossValueUnit.getForex(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(81.21))));
     }
 
     @Test
@@ -95,12 +420,16 @@ public class DADATBankenhausPDFExtractorTest
         Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security1.getIsin(), is("LU0378449770"));
+        assertNull(security1.getWkn());
+        assertNull(security1.getTickerSymbol());
         assertThat(security1.getName(), is("COMST.-NASDAQ-100 U.ETF I"));
         assertThat(security1.getCurrencyCode(), is(CurrencyUnit.EUR));
 
         Security security2 = results.stream().filter(i -> i instanceof SecurityItem).skip(1).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security2.getIsin(), is("LU0392494562"));
+        assertNull(security2.getWkn());
+        assertNull(security2.getTickerSymbol());
         assertThat(security2.getName(), is("COMS.-MSCI WORL.T.U.ETF I"));
         assertThat(security2.getCurrencyCode(), is(CurrencyUnit.EUR));
 
@@ -164,6 +493,8 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("IE00BKM4GZ66"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("IS C.MSCI EMIMI U.ETF DLA"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.EUR));
 
@@ -206,7 +537,9 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("US2561631068"));
-        assertThat(security.getName(), is("DOCUSIGN INC    DL-,0001"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
+        assertThat(security.getName(), is("DOCUSIGN INC DL-,0001"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.USD));
 
         // check buy sell transaction
@@ -299,7 +632,9 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("US2561631068"));
-        assertThat(security.getName(), is("DOCUSIGN INC    DL-,0001"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
+        assertThat(security.getName(), is("DOCUSIGN INC DL-,0001"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.USD));
 
         // check buy sell transaction
@@ -392,6 +727,8 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("AT0000969985"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("AT+S AUST. TECH.SYS.O.N."));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.EUR));
 
@@ -433,12 +770,16 @@ public class DADATBankenhausPDFExtractorTest
         Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security1.getIsin(), is("US00206R1023"));
-        assertThat(security1.getName(), is("AT + T INC.          DL 1"));
+        assertNull(security1.getWkn());
+        assertNull(security1.getTickerSymbol());
+        assertThat(security1.getName(), is("AT + T INC. DL 1"));
         assertThat(security1.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security2 = results.stream().filter(i -> i instanceof SecurityItem).skip(1).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security2.getIsin(), is("US92343V1044"));
+        assertNull(security2.getWkn());
+        assertNull(security2.getTickerSymbol());
         assertThat(security2.getName(), is("VERIZON COMM. INC. DL-,10"));
         assertThat(security2.getCurrencyCode(), is(CurrencyUnit.USD));
 
@@ -576,11 +917,13 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("LU0378449770"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("COMST.-NASDAQ-100 U.ETF I"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.USD));
 
         // check tax transaction
-        AccountTransaction transaction = (AccountTransaction) results.stream().filter(i -> i instanceof TransactionItem)
+        AccountTransaction transaction = (AccountTransaction) results.stream().filter(TransactionItem.class::isInstance)
                         .findFirst().orElseThrow(IllegalArgumentException::new).getSubject();
 
         assertThat(transaction.getType(), is(AccountTransaction.Type.TAXES));
@@ -666,6 +1009,8 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("LU0378449770"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("COMST.-NASDAQ-100 U.ETF I"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.USD));
 
@@ -756,31 +1101,25 @@ public class DADATBankenhausPDFExtractorTest
         Iterator<Extractor.Item> iter = results.stream().filter(TransactionItem.class::isInstance).iterator();
         assertThat(results.stream().filter(TransactionItem.class::isInstance).count(), is(2L));
 
-        if (iter.hasNext())
-        {
-            Item item = iter.next();
+        Item item = iter.next();
 
-            // assert transaction
-            AccountTransaction transaction = (AccountTransaction) item.getSubject();
-            assertThat(transaction.getType(), is(AccountTransaction.Type.INTEREST));
-            assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2021-03-31T00:00")));
-            assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(4.76))));
-            assertThat(transaction.getSource(), is("Kontoauszug09.txt"));
-            assertThat(transaction.getNote(), is("Sollzinsen"));
-        }
+        // assert transaction
+        AccountTransaction transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.INTEREST));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2021-03-31T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(4.76))));
+        assertThat(transaction.getSource(), is("Kontoauszug09.txt"));
+        assertThat(transaction.getNote(), is("Sollzinsen"));
 
-        if (iter.hasNext())
-        {
-            Item item = iter.next();
+        item = iter.next();
 
-            // assert transaction
-            AccountTransaction transaction = (AccountTransaction) item.getSubject();
-            assertThat(transaction.getType(), is(AccountTransaction.Type.FEES));
-            assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2021-03-31T00:00")));
-            assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(2.50))));
-            assertThat(transaction.getSource(), is("Kontoauszug09.txt"));
-            assertThat(transaction.getNote(), is("Kontoführungsgebühr"));
-        }
+        // assert transaction
+        transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.FEES));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2021-03-31T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(2.50))));
+        assertThat(transaction.getSource(), is("Kontoauszug09.txt"));
+        assertThat(transaction.getNote(), is("Kontoführungsgebühr"));
     }
 
     @Test
@@ -800,18 +1139,15 @@ public class DADATBankenhausPDFExtractorTest
         Iterator<Extractor.Item> iter = results.stream().filter(TransactionItem.class::isInstance).iterator();
         assertThat(results.stream().filter(TransactionItem.class::isInstance).count(), is(1L));
 
-        if (iter.hasNext())
-        {
-            Item item = iter.next();
+        Item item = iter.next();
 
-            // assert transaction
-            AccountTransaction transaction = (AccountTransaction) item.getSubject();
-            assertThat(transaction.getType(), is(AccountTransaction.Type.FEES));
-            assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2021-01-07T00:00")));
-            assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(63.68))));
-            assertThat(transaction.getSource(), is("Kontoauszug10.txt"));
-            assertThat(transaction.getNote(), is("Depotgebührenabrechnung per 31.12.2020"));
-        }
+        // assert transaction
+        AccountTransaction transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.FEES));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2021-01-07T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(63.68))));
+        assertThat(transaction.getSource(), is("Kontoauszug10.txt"));
+        assertThat(transaction.getNote(), is("Depotgebührenabrechnung per 31.12.2020"));
     }
 
     @Test
@@ -831,18 +1167,15 @@ public class DADATBankenhausPDFExtractorTest
         Iterator<Extractor.Item> iter = results.stream().filter(TransactionItem.class::isInstance).iterator();
         assertThat(results.stream().filter(TransactionItem.class::isInstance).count(), is(1L));
 
-        if (iter.hasNext())
-        {
-            Item item = iter.next();
+        Item item = iter.next();
 
-            // assert transaction
-            AccountTransaction transaction = (AccountTransaction) item.getSubject();
-            assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
-            assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2019-06-18T00:00")));
-            assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(100.00))));
-            assertThat(transaction.getSource(), is("Kontoauszug11.txt"));
-            assertThat(transaction.getNote(), is("Max Muster"));
-        }
+        // assert transaction
+        AccountTransaction transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2019-06-18T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(100.00))));
+        assertThat(transaction.getSource(), is("Kontoauszug11.txt"));
+        assertThat(transaction.getNote(), is("Max Muster"));
     }
 
     @Test
@@ -862,18 +1195,24 @@ public class DADATBankenhausPDFExtractorTest
         Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security1.getIsin(), is("DE000A0S9GB0"));
+        assertNull(security1.getWkn());
+        assertNull(security1.getTickerSymbol());
         assertThat(security1.getName(), is("0% DT.BOERSE COM. XETRA-GOL"));
         assertThat(security1.getCurrencyCode(), is(CurrencyUnit.EUR));
 
         Security security2 = results.stream().filter(SecurityItem.class::isInstance).skip(1).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security2.getIsin(), is("IE00B4L5YC18"));
+        assertNull(security2.getWkn());
+        assertNull(security2.getTickerSymbol());
         assertThat(security2.getName(), is("ISHSIII-MSCI EM USD(ACC)"));
         assertThat(security2.getCurrencyCode(), is(CurrencyUnit.EUR));
 
         Security security3 = results.stream().filter(SecurityItem.class::isInstance).skip(2).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security3.getIsin(), is("IE00B4L5Y983"));
+        assertNull(security3.getWkn());
+        assertNull(security3.getTickerSymbol());
         assertThat(security3.getName(), is("ISHSIII-CORE MSCI WLD DLA"));
         assertThat(security3.getCurrencyCode(), is(CurrencyUnit.EUR));
 
@@ -958,18 +1297,24 @@ public class DADATBankenhausPDFExtractorTest
         Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security1.getIsin(), is("IE00B4L5YC18"));
+        assertNull(security1.getWkn());
+        assertNull(security1.getTickerSymbol());
         assertThat(security1.getName(), is("ISHSIII-MSCI EM USD(ACC)"));
         assertThat(security1.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security2 = results.stream().filter(SecurityItem.class::isInstance).skip(1).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security2.getIsin(), is("IE00B4L5Y983"));
+        assertNull(security2.getWkn());
+        assertNull(security2.getTickerSymbol());
         assertThat(security2.getName(), is("ISHSIII-CORE MSCI WLD DLA"));
         assertThat(security2.getCurrencyCode(), is(CurrencyUnit.USD));
 
         Security security3 = results.stream().filter(SecurityItem.class::isInstance).skip(2).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security3.getIsin(), is("IE00B5BMR087"));
+        assertNull(security3.getWkn());
+        assertNull(security3.getTickerSymbol());
         assertThat(security3.getName(), is("ISHSVII-CORE S+P500 DLACC"));
         assertThat(security3.getCurrencyCode(), is(CurrencyUnit.USD));
 
@@ -1404,13 +1749,17 @@ public class DADATBankenhausPDFExtractorTest
         Security security1 = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security1.getIsin(), is("US92556H2067"));
+        assertNull(security1.getWkn());
+        assertNull(security1.getTickerSymbol());
         assertThat(security1.getName(), is("VIACOMCBS INC. BDL-,001"));
         assertThat(security1.getCurrencyCode(), is(CurrencyUnit.EUR));
 
         Security security2 = results.stream().filter(SecurityItem.class::isInstance).skip(1).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security2.getIsin(), is("US1667641005"));
-        assertThat(security2.getName(), is("CHEVRON CORP.      DL-,75"));
+        assertNull(security2.getWkn());
+        assertNull(security2.getTickerSymbol());
+        assertThat(security2.getName(), is("CHEVRON CORP. DL-,75"));
         assertThat(security2.getCurrencyCode(), is(CurrencyUnit.EUR));
 
         // check 1st buy sell transaction
@@ -1524,6 +1873,8 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("IE00B4L5YC18"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("ISHSIII-MSCI EM USD(ACC)"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.EUR));
 
@@ -1550,6 +1901,220 @@ public class DADATBankenhausPDFExtractorTest
     }
 
     @Test
+    public void testKontoauszug24()
+    {
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Kontoauszug24.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(results.size(), is(3));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check security
+        Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
+                        .orElseThrow(IllegalArgumentException::new).getSecurity();
+        assertThat(security.getIsin(), is("IE00BYX2JD69"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
+        assertThat(security.getName(), is("ISHSIV-MSCI WLD.SRI U.EOA"));
+        assertThat(security.getCurrencyCode(), is(CurrencyUnit.EUR));
+
+        // check 1st tax transaction
+        AccountTransaction transaction = (AccountTransaction) results.stream().filter(TransactionItem.class::isInstance)
+                        .findFirst().orElseThrow(IllegalArgumentException::new).getSubject();
+
+        assertThat(transaction.getType(), is(AccountTransaction.Type.TAXES));
+
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2022-11-10T00:00")));
+        assertThat(transaction.getShares(), is(Values.Share.factorize(68.809)));
+        assertThat(transaction.getSource(), is("Kontoauszug24.txt"));
+        assertNull(transaction.getNote());
+
+        assertThat(transaction.getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(5.18))));
+        assertThat(transaction.getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(5.18))));
+        assertThat(transaction.getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(transaction.getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+
+        // check 2nd tax transaction
+        transaction = (AccountTransaction) results.stream().filter(TransactionItem.class::isInstance).skip(1)
+                        .findFirst().orElseThrow(IllegalArgumentException::new).getSubject();
+
+        assertThat(transaction.getType(), is(AccountTransaction.Type.TAXES));
+
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2022-11-10T00:00")));
+        assertThat(transaction.getShares(), is(Values.Share.factorize(35369)));
+        assertThat(transaction.getSource(), is("Kontoauszug24.txt"));
+        assertNull(transaction.getNote());
+
+        assertThat(transaction.getMonetaryAmount(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(2663.29))));
+        assertThat(transaction.getGrossValue(),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(2663.29))));
+        assertThat(transaction.getUnitSum(Unit.Type.TAX),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+        assertThat(transaction.getUnitSum(Unit.Type.FEE),
+                        is(Money.of(CurrencyUnit.EUR, Values.Amount.factorize(0.00))));
+    }
+
+    @Test
+    public void testKontoauszug25()
+    {
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Kontoauszug25.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(3L));
+        assertThat(countBuySell(results), is(3L));
+        assertThat(countAccountTransactions(results), is(3L));
+        assertThat(results.size(), is(9));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin("US00206R1023"), hasWkn(null), hasTicker(null), //
+                        hasName("AT + T INC. DL 1"), //
+                        hasCurrencyCode("EUR"))));
+
+        assertThat(results, hasItem(security( //
+                        hasIsin("US7672921050"), hasWkn(null), hasTicker(null), //
+                        hasName("RIOT PLATFORMS DL-,001"), //
+                        hasCurrencyCode("EUR"))));
+
+        assertThat(results, hasItem(security( //
+                        hasIsin("US9344231041"), hasWkn(null), hasTicker(null), //
+                        hasName("WB DISCOVERY SER.A DL-,01"), //
+                        hasCurrencyCode("EUR"))));
+
+        // check 1st buy sell transaction
+        assertThat(results, hasItem(sale( //
+                        hasDate("2023-11-23T00:00"), hasShares(200), //
+                        hasSource("Kontoauszug25.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 2956.65), hasGrossValue("EUR", 2965.00), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 8.35))));
+
+        // check 2nd buy sell transaction
+        assertThat(results, hasItem(sale( //
+                        hasDate("2023-11-23T00:00"), hasShares(50), //
+                        hasSource("Kontoauszug25.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 513.92), hasGrossValue("EUR", 518.60), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 4.68))));
+
+        // check 3rd buy sell transaction
+        assertThat(results, hasItem(sale( //
+                        hasDate("2023-11-23T00:00"), hasShares(48), //
+                        hasSource("Kontoauszug25.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 463.11), hasGrossValue("EUR", 467.71), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 4.60))));
+
+        // check 1st tax refund transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-11-23T00:00"), hasShares(0), //
+                        hasSource("Kontoauszug25.txt"), //
+                        hasNote("KESt-Verlustausgleich"), //
+                        hasAmount("EUR", 461.29), hasGrossValue("EUR", 461.29), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 0.00))));
+
+        // check 2nd tax refund transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-11-23T00:00"), hasShares(0), //
+                        hasSource("Kontoauszug25.txt"), //
+                        hasNote("KESt-Verlustausgleich"), //
+                        hasAmount("EUR", 258.64), hasGrossValue("EUR", 258.64), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 0.00))));
+
+        // check 3rd tax refund transaction
+        assertThat(results, hasItem(taxRefund( //
+                        hasDate("2023-11-23T00:00"), hasShares(0), //
+                        hasSource("Kontoauszug25.txt"), //
+                        hasNote("KESt-Verlustausgleich"), //
+                        hasAmount("EUR", 196.77), hasGrossValue("EUR", 196.77), //
+                        hasTaxes("EUR", 0.00), hasFees("EUR", 0.00))));
+    }
+
+    @Test
+    public void testKontoauszug26()
+    {
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Kontoauszug26.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(1L));
+        assertThat(countBuySell(results), is(0L));
+        assertThat(countAccountTransactions(results), is(1L));
+        assertThat(results.size(), is(2));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin("US7134481081"), hasWkn(null), hasTicker(null), //
+                        hasName("PEPSICO INC. DL-,0166"), //
+                        hasCurrencyCode("USD"))));
+
+        // check dividends transaction
+        assertThat(results, hasItem(dividend( //
+                        hasDate("2024-01-09T00:00"), hasShares(55), //
+                        hasSource("Kontoauszug26.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 45.97), hasGrossValue("EUR", 63.41), //
+                        hasForexGrossValue("USD", 69.58), //
+                        hasTaxes("EUR", (10.44 + 8.70) / 1.097300), hasFees("EUR", 0.00))));
+    }
+
+    @Test
+    public void testKontoauszug26WithSecurityInEUR()
+    {
+        Security security = new Security("PEPSICO INC. DL-,0166", CurrencyUnit.EUR);
+        security.setIsin("US7134481081");
+
+        Client client = new Client();
+        client.addSecurity(security);
+
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(client);
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Kontoauszug26.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(0L));
+        assertThat(countBuySell(results), is(0L));
+        assertThat(countAccountTransactions(results), is(1L));
+        assertThat(results.size(), is(1));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check dividends transaction
+        assertThat(results, hasItem(dividend( //
+                        hasDate("2024-01-09T00:00"), hasShares(55), //
+                        hasSource("Kontoauszug26.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 45.97), hasGrossValue("EUR", 63.41), //
+                        hasTaxes("EUR", (10.44 + 8.70) / 1.097300), hasFees("EUR", 0.00), //
+                        check(tx -> {
+                            CheckCurrenciesAction c = new CheckCurrenciesAction();
+                            Account account = new Account();
+                            account.setCurrencyCode(CurrencyUnit.EUR);
+                            Status s = c.process((AccountTransaction) tx, account);
+                            assertThat(s, is(Status.OK_STATUS));
+                        }))));
+    }
+
+    @Test
     public void testWertpapierDividende01()
     {
         DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
@@ -1566,6 +2131,8 @@ public class DADATBankenhausPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("US09247X1019"));
+        assertNull(security.getWkn());
+        assertNull(security.getTickerSymbol());
         assertThat(security.getName(), is("B L A C K R O C K  I NC. Reg. Shares Class A DL -,01"));
         assertThat(security.getCurrencyCode(), is(CurrencyUnit.USD));
 
@@ -1637,5 +2204,75 @@ public class DADATBankenhausPDFExtractorTest
         account.setCurrencyCode(CurrencyUnit.EUR);
         Status s = c.process(transaction, account);
         assertThat(s, is(Status.OK_STATUS));
+    }
+
+    @Test
+    public void testDividende02()
+    {
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(new Client());
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Dividende02.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(1L));
+        assertThat(countBuySell(results), is(0L));
+        assertThat(countAccountTransactions(results), is(1L));
+        assertThat(results.size(), is(2));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check security
+        assertThat(results, hasItem(security( //
+                        hasIsin("US56035L1044"), hasWkn(null), hasTicker(null), //
+                        hasName("M a i n  S t r e e t Capital Corp. Registered Shares DL -,01"), //
+                        hasCurrencyCode("USD"))));
+
+        // check dividends transaction
+        assertThat(results, hasItem(dividend( //
+                        hasDate("2023-12-27T00:00"), hasShares(100), //
+                        hasSource("Dividende02.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 17.99), hasGrossValue("EUR", 24.82), //
+                        hasForexGrossValue("USD", 27.50), //
+                        hasTaxes("EUR", (4.13 + 3.44) / 1.1082), hasFees("EUR", 0.00))));
+    }
+
+    @Test
+    public void testDividende02WithSecurityInEUR()
+    {
+        Security security = new Security("M a i n  S t r e e t Capital Corp. Registered Shares DL -,01", CurrencyUnit.EUR);
+        security.setIsin("US56035L1044");
+
+        Client client = new Client();
+        client.addSecurity(security);
+
+        DADATBankenhausPDFExtractor extractor = new DADATBankenhausPDFExtractor(client);
+
+        List<Exception> errors = new ArrayList<>();
+
+        List<Item> results = extractor.extract(PDFInputFile.loadTestCase(getClass(), "Dividende02.txt"), errors);
+
+        assertThat(errors, empty());
+        assertThat(countSecurities(results), is(0L));
+        assertThat(countBuySell(results), is(0L));
+        assertThat(countAccountTransactions(results), is(1L));
+        assertThat(results.size(), is(1));
+        new AssertImportActions().check(results, CurrencyUnit.EUR);
+
+        // check dividends transaction
+        assertThat(results, hasItem(dividend( //
+                        hasDate("2023-12-27T00:00"), hasShares(100), //
+                        hasSource("Dividende02.txt"), //
+                        hasNote(null), //
+                        hasAmount("EUR", 17.99), hasGrossValue("EUR", 24.82), //
+                        hasTaxes("EUR", (4.13 + 3.44) / 1.1082), hasFees("EUR", 0.00), //
+                        check(tx -> {
+                            CheckCurrenciesAction c = new CheckCurrenciesAction();
+                            Account account = new Account();
+                            account.setCurrencyCode(CurrencyUnit.EUR);
+                            Status s = c.process((AccountTransaction) tx, account);
+                            assertThat(s, is(Status.OK_STATUS));
+                        }))));
     }
 }

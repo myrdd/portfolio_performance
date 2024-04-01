@@ -2,18 +2,21 @@ Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
 Bundle-Name: %Bundle-Name
 Bundle-SymbolicName: name.abuchen.portfolio
-Bundle-Version: 0.58.5
-Bundle-RequiredExecutionEnvironment: JavaSE-11
-Export-Package: name.abuchen.portfolio.checks,
+Bundle-Version: 0.67.3
+Bundle-RequiredExecutionEnvironment: JavaSE-17
+Export-Package: name.abuchen.portfolio,
+ name.abuchen.portfolio.checks,
  name.abuchen.portfolio.datatransfer,
  name.abuchen.portfolio.datatransfer.actions,
  name.abuchen.portfolio.datatransfer.csv,
+ name.abuchen.portfolio.datatransfer.ibflex,
  name.abuchen.portfolio.datatransfer.pdf,
  name.abuchen.portfolio.events,
  name.abuchen.portfolio.json,
  name.abuchen.portfolio.math,
  name.abuchen.portfolio.model,
  name.abuchen.portfolio.money,
+ name.abuchen.portfolio.money.impl;x-friends:="name.abuchen.portfolio.junit",
  name.abuchen.portfolio.online,
  name.abuchen.portfolio.online.impl,
  name.abuchen.portfolio.online.portfolioreport,
@@ -23,7 +26,8 @@ Export-Package: name.abuchen.portfolio.checks,
  name.abuchen.portfolio.snapshot.trades,
  name.abuchen.portfolio.snapshot.trail,
  name.abuchen.portfolio.util
-Import-Package: com.google.common.base,
+Import-Package: com.google.common.annotations,
+ com.google.common.base,
  com.google.common.io,
  com.google.common.util.concurrent,
  com.google.gson,
@@ -39,8 +43,8 @@ Import-Package: com.google.common.base,
  com.thoughtworks.xstream.converters.reflection,
  com.thoughtworks.xstream.io,
  com.thoughtworks.xstream.mapper,
- javax.annotation,
- javax.inject,
+ jakarta.annotation,
+ jakarta.inject,
  org.apache.commons.csv,
  org.apache.commons.math3,
  org.apache.commons.math3.linear,
@@ -59,7 +63,8 @@ Import-Package: com.google.common.base,
  org.jsoup,
  org.jsoup.nodes,
  org.jsoup.safety,
- org.jsoup.select
+ org.jsoup.select,
+ org.osgi.service.component.annotations
 Bundle-ClassPath: .
 Bundle-Vendor: %Bundle-Vendor
 Require-Bundle: org.eclipse.core.runtime,
@@ -69,4 +74,6 @@ Require-Bundle: org.eclipse.core.runtime,
  json-path,
  com.google.gson
 Automatic-Module-Name: name.abuchen.portfolio
-Eclipse-ExtensibleAPI: true
+Bundle-ActivationPolicy: lazy
+Service-Component: OSGI-INF/name.abuchen.portfolio.util.ImageioSpiRegistration.xml
+Require-Capability: osgi.extender;filter:="(osgi.extender=osgi.serviceloader.processor)",osgi.serviceloader;filter:="(osgi.serviceloader=javax.imageio.spi.ImageReaderSpi)";cardinality:=multiple

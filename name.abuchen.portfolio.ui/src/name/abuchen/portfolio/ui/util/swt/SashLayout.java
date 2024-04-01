@@ -183,9 +183,6 @@ public class SashLayout extends Layout
 
         if (data.size > 0 || (proposedSize > MIN_WIDHT && proposedSize < totalSize - MIN_WIDHT))
         {
-            // ensure minimum size of a child (if not hidden)
-            proposedSize = Math.max(MIN_WIDHT, proposedSize);
-            proposedSize = Math.min(totalSize - MIN_WIDHT, proposedSize);
             data.size = isBeginning ? proposedSize : totalSize - proposedSize;
         }
     }
@@ -217,7 +214,17 @@ public class SashLayout extends Layout
     public void flip()
     {
         SashLayoutData data = getLayoutData(getChildren().get(isBeginning ? 0 : 1));
-        data.size *= -1;
+
+        // the user dragged the area to minimum size. Therefore, restore it to
+        // some reasonable (and visible) size
+        if (Math.abs(data.size) < MIN_WIDHT)
+        {
+            data.size = data.size <= 0 ? 200 : -200;
+        }
+        else
+        {
+            data.size *= -1;
+        }
 
         host.layout();
         host.update();
@@ -239,9 +246,9 @@ public class SashLayout extends Layout
     protected void layout(Composite composite, boolean flushCache)
     {
         Rectangle bounds = composite.getBounds();
-        if (composite instanceof Shell)
+        if (composite instanceof Shell shell)
         {
-            bounds = ((Shell) composite).getClientArea();
+            bounds = shell.getClientArea();
         }
         else
         {
@@ -263,7 +270,7 @@ public class SashLayout extends Layout
 
         int availableSize = (isHorizontal ? bounds.width : bounds.height) - SASH_WIDTH;
 
-        int fixedSize = Math.max(0, getLayoutData(children.get(isBeginning ? 0 : 1)).size);
+        int fixedSize = Math.min(Math.max(0, getLayoutData(children.get(isBeginning ? 0 : 1)).size), availableSize);
         int remaining = Math.max(0, availableSize - fixedSize);
 
         int pos = isHorizontal ? bounds.x : bounds.y;

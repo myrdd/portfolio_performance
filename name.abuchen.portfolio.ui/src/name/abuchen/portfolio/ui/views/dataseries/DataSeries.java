@@ -35,9 +35,9 @@ public final class DataSeries implements Adaptable
      */
     public enum ClientDataSeries
     {
-        TOTALS, INVESTED_CAPITAL, ABSOLUTE_INVESTED_CAPITAL, TRANSFERALS, TAXES, ABSOLUTE_DELTA, ABSOLUTE_DELTA_ALL_RECORDS, //
+        TOTALS, INVESTED_CAPITAL, ABSOLUTE_INVESTED_CAPITAL, TRANSFERALS, TAXES, TAXES_ACCUMULATED, ABSOLUTE_DELTA, ABSOLUTE_DELTA_ALL_RECORDS, //
         DIVIDENDS, DIVIDENDS_ACCUMULATED, INTEREST, INTEREST_ACCUMULATED, DELTA_PERCENTAGE, INTEREST_CHARGE, INTEREST_CHARGE_ACCUMULATED, //
-        EARNINGS, EARNINGS_ACCUMULATED;
+        EARNINGS, EARNINGS_ACCUMULATED, FEES, FEES_ACCUMULATED;
     }
 
     /**
@@ -56,8 +56,8 @@ public final class DataSeries implements Adaptable
         PORTFOLIO_PLUS_ACCOUNT("[+]Portfolio", i -> ((Portfolio) i).getUUID()), //$NON-NLS-1$
         PORTFOLIO_PLUS_ACCOUNT_PRETAX("[+]Portfolio-PreTax", i -> ((Portfolio) i).getUUID()), //$NON-NLS-1$
         CLASSIFICATION("Classification", i -> ((Classification) i).getId()), //$NON-NLS-1$
-        CLIENT_FILTER("ClientFilter", i -> ((ClientFilterMenu.Item) i).getUUIDs().replaceAll(",", "")), //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-        CLIENT_FILTER_PRETAX("ClientFilter-PreTax", i -> ((ClientFilterMenu.Item) i).getUUIDs().replaceAll(",", "")); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+        CLIENT_FILTER("ClientFilter", i -> ((ClientFilterMenu.Item) i).getId()), //$NON-NLS-1$ $
+        CLIENT_FILTER_PRETAX("ClientFilter-PreTax", i -> ((ClientFilterMenu.Item) i).getId()); //$NON-NLS-1$
 
         private final String label;
         private final Function<Object, String> uuidProvider;
@@ -81,7 +81,7 @@ public final class DataSeries implements Adaptable
     private boolean isLineChart = true;
     private boolean isBenchmark = false;
     private int lineWidth = 2;
-    
+
     private RGB color;
 
     private boolean showArea;
@@ -124,7 +124,7 @@ public final class DataSeries implements Adaptable
 
     public String getLabel()
     {
-        return isBenchmark() ? label + Messages.ChartSeriesBenchmarkSuffix : label;
+        return isBenchmark() ? label + " " + Messages.ChartSeriesBenchmarkSuffix : label; //$NON-NLS-1$
     }
 
     public void setLabel(String label)
@@ -138,16 +138,16 @@ public final class DataSeries implements Adaptable
 
         buf.append(label);
 
-        if (instance instanceof Classification)
+        if (instance instanceof Classification classification)
         {
-            Classification parent = ((Classification) instance).getParent();
+            Classification parent = classification.getParent();
 
             if (parent.getParent() != null)
                 buf.append(" (").append(parent.getPathName(false)).append(")"); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
         if (isBenchmark())
-            buf.append(Messages.ChartSeriesBenchmarkSuffix);
+            buf.append(" ").append(Messages.ChartSeriesBenchmarkSuffix); //$NON-NLS-1$
 
         return buf.toString();
     }

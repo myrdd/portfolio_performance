@@ -9,6 +9,7 @@ import com.google.protobuf.NullValue;
 import name.abuchen.portfolio.model.proto.v1.PAnyValue;
 import name.abuchen.portfolio.model.proto.v1.PKeyValue;
 import name.abuchen.portfolio.model.proto.v1.PMap;
+import name.abuchen.portfolio.money.Money;
 
 public class TypedMap extends HashMap<String, Object>
 {
@@ -42,6 +43,8 @@ public class TypedMap extends HashMap<String, Object>
             return;
         if (value instanceof String)
             return;
+        if (value instanceof Money)
+            return;
 
         throw new IllegalArgumentException(value.getClass().getName());
     }
@@ -53,11 +56,11 @@ public class TypedMap extends HashMap<String, Object>
         if (answer == null)
             return false;
 
-        if (answer instanceof Boolean)
-            return (Boolean) answer;
+        if (answer instanceof Boolean b)
+            return b;
         
-        if (answer instanceof String)
-            return Boolean.getBoolean((String)answer);
+        if (answer instanceof String s)
+            return Boolean.getBoolean(s);
 
         throw new IllegalArgumentException(key);
     }
@@ -74,8 +77,8 @@ public class TypedMap extends HashMap<String, Object>
         if (answer == null)
             return null;
 
-        if (answer instanceof String)
-            return (String) answer;
+        if (answer instanceof String s)
+            return s;
 
         throw new IllegalArgumentException(key);
     }
@@ -97,10 +100,10 @@ public class TypedMap extends HashMap<String, Object>
             Object value = entry.getValue();
             if (value == null)
                 newEntry.setValue(PAnyValue.newBuilder().setNullValue(NullValue.NULL_VALUE_VALUE).build());
-            else if (value instanceof String)
-                newEntry.setValue(PAnyValue.newBuilder().setString((String) value));
-            else if (value instanceof Boolean)
-                newEntry.setValue(PAnyValue.newBuilder().setBool((Boolean) value));
+            else if (value instanceof String s)
+                newEntry.setValue(PAnyValue.newBuilder().setString(s));
+            else if (value instanceof Boolean b)
+                newEntry.setValue(PAnyValue.newBuilder().setBool(b));
             else
                 throw new IllegalArgumentException(value.getClass().getName());
 

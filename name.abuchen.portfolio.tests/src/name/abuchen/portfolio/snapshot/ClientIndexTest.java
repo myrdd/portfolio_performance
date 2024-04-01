@@ -16,11 +16,11 @@ import java.util.Locale;
 import org.hamcrest.number.IsCloseTo;
 import org.junit.Test;
 
-import name.abuchen.portfolio.AccountBuilder;
 import name.abuchen.portfolio.Messages;
-import name.abuchen.portfolio.PortfolioBuilder;
-import name.abuchen.portfolio.SecurityBuilder;
-import name.abuchen.portfolio.TestCurrencyConverter;
+import name.abuchen.portfolio.junit.AccountBuilder;
+import name.abuchen.portfolio.junit.PortfolioBuilder;
+import name.abuchen.portfolio.junit.SecurityBuilder;
+import name.abuchen.portfolio.junit.TestCurrencyConverter;
 import name.abuchen.portfolio.model.Account;
 import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Security;
@@ -382,6 +382,33 @@ public class ClientIndexTest
 
         double[] accumulated = index.getAccumulatedPercentage();
         assertThat(accumulated[accumulated.length - 1], IsCloseTo.closeTo(0.1d, PRECISION));
+    }
+
+    @Test
+    public void testInterestWithTax()
+    {
+        Client client = new Client();
+
+        new AccountBuilder() //
+                        .deposit_("2022-01-01", 1000_00) //
+                        .interest("2022-12-24", 42_50, 7_50) //
+                        .addTo(client);
+
+        Interval reportInterval = Interval.of(LocalDate.of(2021, Month.DECEMBER, 31), //
+                        LocalDate.of(2022, Month.DECEMBER, 31));
+        CurrencyConverter converter = new TestCurrencyConverter();
+        PerformanceIndex index = PerformanceIndex.forClient(client, converter, reportInterval, new ArrayList<>());
+
+        long totals[] = index.getTotals();
+        assertThat(totals[totals.length - 9], is(1000_00L));
+        assertThat(totals[totals.length - 8], is(1042_50L));
+        assertThat(totals[totals.length - 1], is(1042_50L));
+
+        long interest[] = index.getInterest();
+        assertThat(interest[interest.length - 8], is(42_50L));
+
+        long taxes[] = index.getTaxes();
+        assertThat(taxes[taxes.length - 8], is(7_50L));
     }
 
 }

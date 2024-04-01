@@ -12,14 +12,15 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
 import org.eclipse.e4.core.di.extensions.Preference;
 import org.eclipse.e4.ui.services.IServiceConstants;
+import org.eclipse.e4.ui.services.IStylingEngine;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.MenuManager;
@@ -54,6 +55,9 @@ import name.abuchen.portfolio.ui.util.SWTHelper;
 
 public class AccountTransactionDialog extends AbstractTransactionDialog // NOSONAR
 {
+    @Inject
+    private IStylingEngine stylingEngine;
+
     @Inject
     private Client client;
 
@@ -216,6 +220,9 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
         //
         // form layout
         //
+
+        // measuring the width requires that the font has been applied before
+        stylingEngine.style(editArea);
 
         int widest = widest(securities != null ? securities.label : null, accounts.label, dateTime.label, shares.label,
                         taxes.label, fees.label, total.label, lblNote, fxGrossAmount.label);
@@ -472,6 +479,11 @@ public class AccountTransactionDialog extends AbstractTransactionDialog // NOSON
     public void setTransaction(Account account, AccountTransaction transaction)
     {
         model().setSource(account, transaction);
+    }
+
+    public void presetTransaction(Account account, AccountTransaction transaction)
+    {
+        model().presetFromSource(account, transaction);
     }
 
 }

@@ -27,7 +27,7 @@ public class SecurityTransferModel extends AbstractModel
 {
     public enum Properties
     {
-        security, securityCurrencyCode, sourcePortfolio, sourcePortfolioLabel, targetPortfolio, targetPortfolioLabel, date, time, shares, quote, amount, note, calculationStatus;
+        security, securityCurrencyCode, sourcePortfolio, targetPortfolio, date, time, shares, quote, amount, note, calculationStatus;
     }
 
     private final Client client;
@@ -169,6 +169,11 @@ public class SecurityTransferModel extends AbstractModel
     public void setSource(PortfolioTransferEntry entry)
     {
         this.source = entry;
+        presetFromSource(entry);
+    }
+    
+    public void presetFromSource(PortfolioTransferEntry entry)
+    {
         this.sourcePortfolio = (Portfolio) entry.getOwner(entry.getSourceTransaction());
         this.targetPortfolio = (Portfolio) entry.getOwner(entry.getTargetTransaction());
 
@@ -181,6 +186,7 @@ public class SecurityTransferModel extends AbstractModel
         this.amount = entry.getTargetTransaction().getAmount();
         this.note = entry.getSourceTransaction().getNote();
     }
+
 
     @Override
     public IStatus getCalculationStatus()
@@ -209,16 +215,9 @@ public class SecurityTransferModel extends AbstractModel
 
     public void setSourcePortfolio(Portfolio portfolio)
     {
-        String oldLabel = getSourcePortfolioLabel();
-        firePropertyChange(Properties.sourcePortfolio.name(), this.sourcePortfolio, this.sourcePortfolio = portfolio);
-        firePropertyChange(Properties.sourcePortfolioLabel.name(), oldLabel, getSourcePortfolioLabel());
+        firePropertyChange(Properties.sourcePortfolio.name(), this.sourcePortfolio, this.sourcePortfolio = portfolio); // NOSONAR
 
         updateSharesAndQuote();
-    }
-
-    public String getSourcePortfolioLabel()
-    {
-        return sourcePortfolio != null ? sourcePortfolio.getReferenceAccount().getName() : ""; //$NON-NLS-1$
     }
 
     public Portfolio getTargetPortfolio()
@@ -228,14 +227,7 @@ public class SecurityTransferModel extends AbstractModel
 
     public void setTargetPortfolio(Portfolio portfolio)
     {
-        String oldLabel = getTargetPortfolioLabel();
-        firePropertyChange(Properties.targetPortfolio.name(), this.targetPortfolio, this.targetPortfolio = portfolio);
-        firePropertyChange(Properties.targetPortfolioLabel.name(), oldLabel, getTargetPortfolioLabel());
-    }
-
-    public String getTargetPortfolioLabel()
-    {
-        return targetPortfolio != null ? targetPortfolio.getReferenceAccount().getName() : ""; //$NON-NLS-1$
+        firePropertyChange(Properties.targetPortfolio.name(), this.targetPortfolio, this.targetPortfolio = portfolio); // NOSONAR
     }
 
     public LocalDate getDate()

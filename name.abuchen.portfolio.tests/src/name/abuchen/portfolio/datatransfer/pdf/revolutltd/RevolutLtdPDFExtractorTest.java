@@ -50,6 +50,7 @@ public class RevolutLtdPDFExtractorTest
         Security security = results.stream().filter(SecurityItem.class::isInstance).findFirst()
                         .orElseThrow(IllegalArgumentException::new).getSecurity();
         assertThat(security.getIsin(), is("US88160R1014"));
+        assertNull(security.getWkn());
         assertThat(security.getTickerSymbol(), is("TSLA"));
         assertThat(security.getName(), is("Tesla"));
         new AssertImportActions().check(results, CurrencyUnit.USD);
@@ -94,30 +95,24 @@ public class RevolutLtdPDFExtractorTest
         Iterator<Extractor.Item> iter = results.stream().filter(TransactionItem.class::isInstance).iterator();
         assertThat(results.stream().filter(i -> i instanceof TransactionItem).count(), is(2L));
 
-        if (iter.hasNext())
-        {
-            Item item = iter.next();
+        Item item = iter.next();
 
-            // assert transaction
-            AccountTransaction transaction = (AccountTransaction) item.getSubject();
-            assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
-            assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2020-07-08T00:00")));
-            assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(460.85))));
-            assertThat(transaction.getSource(), is("AccountStatement01.txt"));
-            assertNull(transaction.getNote());
-        }
+        // assert transaction
+        AccountTransaction transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2020-07-08T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(460.85))));
+        assertThat(transaction.getSource(), is("AccountStatement01.txt"));
+        assertNull(transaction.getNote());
 
-        if (iter.hasNext())
-        {
-            Item item = iter.next();
+        item = iter.next();
 
-            // assert transaction
-            AccountTransaction transaction = (AccountTransaction) item.getSubject();
-            assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
-            assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2020-07-15T00:00")));
-            assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(204.15))));
-            assertThat(transaction.getSource(), is("AccountStatement01.txt"));
-            assertNull(transaction.getNote());
-        }
+        // assert transaction
+        transaction = (AccountTransaction) item.getSubject();
+        assertThat(transaction.getType(), is(AccountTransaction.Type.DEPOSIT));
+        assertThat(transaction.getDateTime(), is(LocalDateTime.parse("2020-07-15T00:00")));
+        assertThat(transaction.getMonetaryAmount(), is(Money.of(CurrencyUnit.USD, Values.Amount.factorize(204.15))));
+        assertThat(transaction.getSource(), is("AccountStatement01.txt"));
+        assertNull(transaction.getNote());
     }
 }

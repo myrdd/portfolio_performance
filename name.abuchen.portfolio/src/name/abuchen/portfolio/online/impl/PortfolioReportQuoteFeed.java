@@ -8,17 +8,16 @@ import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.osgi.framework.FrameworkUtil;
 
-import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
 import name.abuchen.portfolio.Messages;
+import name.abuchen.portfolio.json.JClient;
 import name.abuchen.portfolio.model.Exchange;
 import name.abuchen.portfolio.model.LatestSecurityPrice;
 import name.abuchen.portfolio.model.Security;
@@ -174,6 +173,14 @@ public final class PortfolioReportQuoteFeed implements QuoteFeed
     @Override
     public List<Exchange> getExchanges(Security security, List<Exception> errors)
     {
+        return getMarkets(security).stream()
+                        .map(m -> new Exchange(m.getMarketCode(), MessageFormat.format(Messages.LabelXwithCurrencyY,
+                                        MarketIdentifierCodes.getLabel(m.getMarketCode()), m.getCurrencyCode())))
+                        .toList();
+    }
+
+    /* package */ static List<MarketInfo> getMarkets(Security security)
+    {
         if (security.getOnlineId() == null)
             return Collections.emptyList();
 
@@ -185,14 +192,7 @@ public final class PortfolioReportQuoteFeed implements QuoteFeed
         {
         }.getType();
 
-        List<MarketInfo> marketInfos = new Gson().fromJson(markets.get(), collectionType);
-
-        return marketInfos
-                        .stream().map(
-                                        m -> new Exchange(m.getMarketCode(),
-                                                        MessageFormat.format(Messages.LabelXwithCurrencyY,
-                                                                        m.getMarketCode(), m.getCurrencyCode())))
-                        .collect(Collectors.toList());
+        return JClient.GSON.fromJson(markets.get(), collectionType);
     }
 
 }

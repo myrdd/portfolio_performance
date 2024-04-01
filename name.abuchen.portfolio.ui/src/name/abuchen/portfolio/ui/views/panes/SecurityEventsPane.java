@@ -3,8 +3,9 @@ package name.abuchen.portfolio.ui.views.panes;
 import java.util.Collections;
 import java.util.Iterator;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
+import org.eclipse.e4.ui.services.IStylingEngine;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.Separator;
@@ -44,6 +45,9 @@ import name.abuchen.portfolio.ui.wizards.events.CustomEventWizard;
 
 public class SecurityEventsPane implements InformationPanePage
 {
+    @Inject
+    private IStylingEngine stylingEngine;
+
     @Inject
     private Client client;
 
@@ -125,9 +129,9 @@ public class SecurityEventsPane implements InformationPanePage
 
         column = new Column(Messages.ColumnPaymentDate, SWT.NONE, 80);
         column.setLabelProvider(new DateLabelProvider(
-                        e -> e instanceof DividendEvent ? ((DividendEvent) e).getPaymentDate() : null));
+                        e -> e instanceof DividendEvent dividendEvent ? dividendEvent.getPaymentDate() : null));
         column.setSorter(ColumnViewerSorter
-                        .create(e -> e instanceof DividendEvent ? ((DividendEvent) e).getPaymentDate() : null));
+                        .create(e -> e instanceof DividendEvent dividendEvent ? dividendEvent.getPaymentDate() : null));
         support.addColumn(column);
 
         column = new Column(Messages.ColumnAmount, SWT.NONE, 80);
@@ -136,13 +140,13 @@ public class SecurityEventsPane implements InformationPanePage
             @Override
             public String getText(Object element)
             {
-                return element instanceof DividendEvent
-                                ? Values.Money.format(((DividendEvent) element).getAmount(), client.getBaseCurrency())
+                return element instanceof DividendEvent dividendEvent
+                                ? Values.Money.format(dividendEvent.getAmount(), client.getBaseCurrency())
                                 : null;
             }
         });
         column.setSorter(ColumnViewerSorter
-                        .create(e -> e instanceof DividendEvent ? ((DividendEvent) e).getAmount() : null));
+                        .create(e -> e instanceof DividendEvent dividendEvent ? dividendEvent.getAmount() : null));
         support.addColumn(column);
 
         column = new Column(Messages.ColumnDetails, SWT.None, 300);
@@ -187,7 +191,7 @@ public class SecurityEventsPane implements InformationPanePage
             @Override
             public void run()
             {
-                CustomEventWizard wizard = new CustomEventWizard(client, security);
+                CustomEventWizard wizard = new CustomEventWizard(stylingEngine, client, security);
                 WizardDialog dialog = new WizardDialog(ActiveShell.get(), wizard);
                 if (dialog.open() == Window.OK)
                     client.markDirty();

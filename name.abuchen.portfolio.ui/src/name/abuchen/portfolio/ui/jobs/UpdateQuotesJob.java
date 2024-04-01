@@ -39,7 +39,7 @@ public final class UpdateQuotesJob extends AbstractClientJob
 
     /**
      * Keeps dirty state of parallel jobs and marks the client file dirty after
-     * 5th dirty result. Background: marking the client dirty after every job
+     * 20 dirty result. Background: marking the client dirty after every job
      * sends too many update events to the GUI.
      */
     private static class Dirtyable
@@ -90,7 +90,7 @@ public final class UpdateQuotesJob extends AbstractClientJob
         @Override
         public boolean isConflicting(ISchedulingRule rule)
         {
-            return rule instanceof HostSchedulingRule && ((HostSchedulingRule) rule).host.equals(this.host);
+            return rule instanceof HostSchedulingRule hostSchedulingRule && hostSchedulingRule.host.equals(this.host);
         }
 
         public static ISchedulingRule createFor(String url)

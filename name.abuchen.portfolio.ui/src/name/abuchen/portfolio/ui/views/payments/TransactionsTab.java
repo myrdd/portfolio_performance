@@ -3,7 +3,7 @@ package name.abuchen.portfolio.ui.views.payments;
 import java.text.MessageFormat;
 import java.util.function.Function;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuManager;
@@ -172,7 +172,7 @@ public class TransactionsTab implements PaymentsTab
                 return LogoManager.instance().getDefaultColumnImage(security, model.getClient().getSettings());
             }
         });
-        ColumnViewerSorter.create(e -> {
+        ColumnViewerSorter.createIgnoreCase(e -> {
             Security s = ((TransactionPair<?>) e).getTransaction().getSecurity();
             return s != null ? s.getName() : null;
         }).attachTo(column);
@@ -319,7 +319,7 @@ public class TransactionsTab implements PaymentsTab
                 return LogoManager.instance().getDefaultColumnImage(owner, model.getClient().getSettings());
             }
         });
-        ColumnViewerSorter.create(e -> ((TransactionPair<?>) e).getOwner().toString()).attachTo(column);
+        ColumnViewerSorter.createIgnoreCase(e -> ((TransactionPair<?>) e).getOwner().toString()).attachTo(column);
         support.addColumn(column);
 
         column = new Column(Messages.ColumnNote, SWT.None, 200);
@@ -344,7 +344,7 @@ public class TransactionsTab implements PaymentsTab
                 return TextUtil.wordwrap(getText(e));
             }
         });
-        ColumnViewerSorter.create(e -> ((TransactionPair<?>) e).getTransaction().getNote()).attachTo(column);
+        ColumnViewerSorter.createIgnoreCase(e -> ((TransactionPair<?>) e).getTransaction().getNote()).attachTo(column);
         support.addColumn(column);
 
         column = new Column(Messages.ColumnSource, SWT.None, 200);
@@ -356,7 +356,8 @@ public class TransactionsTab implements PaymentsTab
                 return ((TransactionPair<?>) element).getTransaction().getSource();
             }
         });
-        ColumnViewerSorter.create(e -> ((TransactionPair<?>) e).getTransaction().getSource()).attachTo(column);
+        ColumnViewerSorter.createIgnoreCase(e -> ((TransactionPair<?>) e).getTransaction().getSource())
+                        .attachTo(column);
         column.setVisible(false);
         support.addColumn(column);
     }

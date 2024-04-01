@@ -15,12 +15,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 
 import name.abuchen.portfolio.money.CurrencyConverter;
 import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.Money;
 import name.abuchen.portfolio.util.Pair;
+import name.abuchen.portfolio.util.TextUtil;
 
 /**
  * A <code>Security</code> is used for assets that have historical prices
@@ -40,7 +42,7 @@ public final class Security implements Attributable, InvestmentVehicle
         {
             if (s1 == null)
                 return s2 == null ? 0 : -1;
-            return s1.name.compareToIgnoreCase(s2.name);
+            return TextUtil.compare(s1.name, s2.name);
         }
     }
 
@@ -84,6 +86,7 @@ public final class Security implements Attributable, InvestmentVehicle
     @Deprecated
     private String industryClassification;
 
+    @VisibleForTesting
     public Security()
     {
         this.uuid = UUID.randomUUID().toString();
@@ -238,10 +241,11 @@ public final class Security implements Attributable, InvestmentVehicle
      */
     public String getTickerSymbolWithoutStockMarket()
     {
-        if (tickerSymbol != null && !tickerSymbol.isEmpty() && tickerSymbol.contains(".")) //$NON-NLS-1$
-            return tickerSymbol.substring(0, tickerSymbol.indexOf('.'));
-        else
-            return tickerSymbol;
+        if (tickerSymbol == null)
+            return null;
+
+        int p = tickerSymbol.indexOf('.');
+        return p >= 0 ? tickerSymbol.substring(0, p) : tickerSymbol;
     }
 
     public String getWkn()
@@ -844,7 +848,10 @@ public final class Security implements Attributable, InvestmentVehicle
 
         answer.feed = feed;
         answer.feedURL = feedURL;
-        answer.prices = new ArrayList<>(prices);
+
+        // cannot use Stream#toList b/c it returns an unmodifiable list
+        answer.prices = new ArrayList<>(
+                        prices.stream().map(p -> new SecurityPrice(p.getDate(), p.getValue())).toList());
 
         answer.latestFeed = latestFeed;
         answer.latestFeedURL = latestFeedURL;

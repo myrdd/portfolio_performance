@@ -17,6 +17,7 @@ import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuListener;
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.jface.action.MenuManager;
+import org.eclipse.jface.databinding.swt.WidgetValueProperty;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.layout.GridDataFactory;
@@ -104,6 +105,27 @@ public class AttributesPage extends AbstractPage implements IMenuListener
         }
     }
 
+    private static class WidgetDataProperty extends WidgetValueProperty<Button, String>
+    {
+        @Override
+        public Object getValueType()
+        {
+            return String.class;
+        }
+
+        @Override
+        protected String doGetValue(Button source)
+        {
+            return (String) source.getData();
+        }
+
+        @Override
+        protected void doSetValue(Button source, String value)
+        {
+            source.setData(value);
+        }
+    }
+
     private final EditSecurityModel model;
     private final BindingHelper bindings;
 
@@ -170,7 +192,7 @@ public class AttributesPage extends AbstractPage implements IMenuListener
             IObservableValue<Boolean> attributeTarget = WidgetProperties.buttonSelection().observe((Button) value);
             binding = bindings.getBindingContext().bindValue(attributeTarget, attributeModel);
         }
-        else if (attribute.getType().getConverter() instanceof ImageConverter)
+        else if (attribute.getType().getConverter() instanceof ImageConverter conv)
         {
             value = new Composite(container, SWT.PUSH);
             GridLayoutFactory.fillDefaults().numColumns(1).applyTo((Composite) value);
@@ -178,8 +200,7 @@ public class AttributesPage extends AbstractPage implements IMenuListener
             final String previewPlaceholderText = "..."; //$NON-NLS-1$
             preview.setText(previewPlaceholderText);
 
-            ImageConverter conv = (ImageConverter) attribute.getType().getConverter();
-            Image img = ImageUtil.toImage(conv.toString(attribute.getValue()), 0, 16, 16);
+            Image img = ImageUtil.instance().toImage(conv.toString(attribute.getValue()), 16, 16);
             if (img != null)
                 preview.setImage(img);
 
@@ -187,7 +208,7 @@ public class AttributesPage extends AbstractPage implements IMenuListener
 
             ToAttributeObjectConverter input2model = new ToAttributeObjectConverter(attribute);
             IObservableValue<Object> attributeModel = BeanProperties.value("value").observe(attribute); //$NON-NLS-1$
-            IObservableValue<String> attributeTarget = WidgetProperties.tooltipText().observe(preview);
+            IObservableValue<String> attributeTarget = new WidgetDataProperty().observe(preview);
             binding = bindings.getBindingContext().bindValue( //
                             attributeTarget, attributeModel,
                             new UpdateValueStrategy<String, Object>().setAfterGetValidator(input2model)
@@ -206,7 +227,7 @@ public class AttributesPage extends AbstractPage implements IMenuListener
                                                         return Status.OK_STATUS;
                                                     }
 
-                                                    Image img = ImageUtil.toImage(s, 0, 16, 16);
+                                                    Image img = ImageUtil.instance().toImage(s, 16, 16);
 
                                                     updatePreview(img);
                                                     return img == null ? Status.CANCEL_STATUS : Status.OK_STATUS;
@@ -230,7 +251,8 @@ public class AttributesPage extends AbstractPage implements IMenuListener
                 {
                     try
                     {
-                        String b64 = ImageUtil.loadAndPrepare(filename, ImageConverter.MAXIMUM_SIZE_EMBEDDED_IMAGE,
+                        String b64 = ImageUtil.instance().loadAndPrepare(filename,
+                                        ImageConverter.MAXIMUM_SIZE_EMBEDDED_IMAGE,
                                         ImageConverter.MAXIMUM_SIZE_EMBEDDED_IMAGE);
                         if (b64 == null)
                             MessageDialog.openError(getShell(), Messages.MsgInvalidImage,

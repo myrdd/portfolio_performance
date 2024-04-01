@@ -25,7 +25,7 @@ import name.abuchen.portfolio.util.Interval;
 
 public class InvestmentHeatmapWidget extends AbstractHeatmapWidget<Long>
 {
-    enum EarningType
+    enum InvestmentType
     {
 
         INVESTMENTS_MINUS_REVENUE(Messages.LabelHeatmapInvestmentsNoSellings,
@@ -40,7 +40,7 @@ public class InvestmentHeatmapWidget extends AbstractHeatmapWidget<Long>
         private String label;
         private Predicate<PortfolioTransaction> predicate;
 
-        private EarningType(String label, Predicate<PortfolioTransaction> predicate)
+        private InvestmentType(String label, Predicate<PortfolioTransaction> predicate)
         {
             this.label = label;
             this.predicate = predicate;
@@ -58,11 +58,11 @@ public class InvestmentHeatmapWidget extends AbstractHeatmapWidget<Long>
         }
     }
 
-    static class EarningsConfig extends EnumBasedConfig<EarningType>
+    static class EarningsConfig extends EnumBasedConfig<InvestmentType>
     {
         public EarningsConfig(WidgetDelegate<?> delegate)
         {
-            super(delegate, Messages.LabelEarnings, EarningType.class, Dashboard.Config.EARNING_TYPE,
+            super(delegate, Messages.LabelHeatmapInvestmentsDirect, InvestmentType.class, Dashboard.Config.EARNING_TYPE,
                             Policy.EXACTLY_ONE);
         }
     }
@@ -99,32 +99,6 @@ public class InvestmentHeatmapWidget extends AbstractHeatmapWidget<Long>
         {
             super(delegate, Messages.LabelGrossNetCalculation, GrossNetType.class, Dashboard.Config.NET_GROSS,
                             Policy.EXACTLY_ONE);
-        }
-    }
-
-    public enum Average
-    {
-        AVERAGE(Messages.HeatmapOrnamentAverage);
-
-        private String label;
-
-        private Average(String label)
-        {
-            this.label = label;
-        }
-
-        @Override
-        public String toString()
-        {
-            return label;
-        }
-    }
-
-    static class AverageConfig extends EnumBasedConfig<Average>
-    {
-        public AverageConfig(WidgetDelegate<?> delegate)
-        {
-            super(delegate, Messages.HeatmapOrnamentAverage, Average.class, Dashboard.Config.LAYOUT, Policy.MULTIPLE);
         }
     }
 
@@ -177,7 +151,7 @@ public class InvestmentHeatmapWidget extends AbstractHeatmapWidget<Long>
         }
 
         CurrencyConverter converter = getDashboardData().getCurrencyConverter();
-        EarningType type = get(EarningsConfig.class).getValue();
+        InvestmentType type = get(EarningsConfig.class).getValue();
         GrossNetType grossNet = get(GrossNetConfig.class).getValue();
 
         // iterate over transactions and add to model
@@ -209,9 +183,11 @@ public class InvestmentHeatmapWidget extends AbstractHeatmapWidget<Long>
         // average
         if (showAverage)
         {
-            model.getRows().forEach(
-                            row -> row.addData((long) row.getDataSubList(0, 12).stream().filter(Objects::nonNull)
-                                            .mapToLong(l -> l == null ? 0L : l.longValue()).average().getAsDouble()));
+            model.getRows().forEach(row -> {
+                long average = Math.round(row.getDataSubList(0, 12).stream().filter(Objects::nonNull)
+                                .mapToLong(l -> l == null ? 0L : l.longValue()).average().getAsDouble());
+                row.addData(average);
+            });
         }
 
         return model;

@@ -4,8 +4,9 @@ import java.text.MessageFormat;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
+import org.eclipse.e4.ui.services.IStylingEngine;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.custom.CLabel;
 import org.eclipse.swt.events.SelectionListener;
@@ -41,6 +42,9 @@ public class AttributeSettingsPane implements InformationPanePage
 {
 
     @Inject
+    private IStylingEngine stylingEngine;
+
+    @Inject
     private Client client;
 
     private Composite viewContainer;
@@ -68,9 +72,8 @@ public class AttributeSettingsPane implements InformationPanePage
                 control.dispose();
         }
 
-        if (input instanceof AttributeType)
+        if (input instanceof AttributeType attr)
         {
-            AttributeType attr = (AttributeType) input;
             createAttributSettingsView(attr, viewContainer);
         }
 
@@ -82,7 +85,7 @@ public class AttributeSettingsPane implements InformationPanePage
         Class<?> type = attribute.getType();
         if (type == LimitPrice.class)
         {
-            LimitPriceSettingsViewFactory.createView(attribute, parent, client);
+            LimitPriceSettingsViewFactory.createView(attribute, parent, stylingEngine, client);
         }
         else
         {
@@ -102,14 +105,15 @@ public class AttributeSettingsPane implements InformationPanePage
     private static class LimitPriceSettingsViewFactory
     {
 
-        private static void createView(AttributeType attribute, Composite parent, Client client)
+        private static void createView(AttributeType attribute, Composite parent, IStylingEngine stylingEngine,
+                        Client client)
         {
             LimitPriceSettings settings = new LimitPriceSettings(attribute.getProperties());
             Composite container = new Composite(parent, SWT.NONE);
             RowLayout layout = new RowLayout(SWT.HORIZONTAL);
             container.setLayout(layout);
 
-            createColorView(container, settings, client);
+            createColorView(container, stylingEngine, settings, client);
             createDistanceView(container, settings, client);
         }
 
@@ -138,7 +142,8 @@ public class AttributeSettingsPane implements InformationPanePage
             }));
         }
 
-        private static void createColorView(Composite parent, LimitPriceSettings settings, Client client)
+        private static void createColorView(Composite parent, IStylingEngine stylingEngine, LimitPriceSettings settings,
+                        Client client)
         {
             // ---------------------------------------------------
             // -- Color settings
@@ -205,6 +210,10 @@ public class AttributeSettingsPane implements InformationPanePage
                 negativelyExceeded.getSecond().setBackdropColor(Colors.theme().redBackground());
                 negativelyExceeded.getSecond().redraw();
             }));
+
+            // measuring the width requires that the font has been applied
+            // before
+            stylingEngine.style(gpColors);
 
             int width = SWTHelper.widest(positiveExceeded.getFirst(), negativelyExceeded.getSecond());
 

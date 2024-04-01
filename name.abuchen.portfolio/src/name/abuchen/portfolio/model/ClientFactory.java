@@ -17,6 +17,8 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.security.AlgorithmParameters;
 import java.security.GeneralSecurityException;
@@ -57,6 +59,7 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.Platform;
 
 import com.google.common.base.Strings;
 import com.thoughtworks.xstream.XStream;
@@ -78,6 +81,7 @@ import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.online.impl.YahooFinanceQuoteFeed;
 import name.abuchen.portfolio.util.ProgressMonitorInputStream;
 import name.abuchen.portfolio.util.TextUtil;
+import name.abuchen.portfolio.util.XStreamArrayListConverter;
 import name.abuchen.portfolio.util.XStreamInstantConverter;
 import name.abuchen.portfolio.util.XStreamLocalDateConverter;
 import name.abuchen.portfolio.util.XStreamLocalDateTimeConverter;
@@ -608,10 +612,38 @@ public class ClientFactory
 
         // open an output stream for the file using a 64 KB buffer to speed up
         // writing
-        try (OutputStream output = new BufferedOutputStream(new FileOutputStream(file), 65536))
+        try (FileOutputStream stream = new FileOutputStream(file);
+                        BufferedOutputStream output = new BufferedOutputStream(stream, 65536))
         {
+            // lock file while writing (apparently network-attache storage is
+            // garbling up the files if it already starts syncing while the file
+            // is still being written)
+            FileChannel channel = stream.getChannel();
+            FileLock lock = null;
+
+            try
+            {
+                // On OS X fcntl does not support locking files on AFP or SMB
+                // https://bugs.openjdk.org/browse/JDK-8167023
+                if (!Platform.getOS().equals(Platform.OS_MACOSX))
+                    lock = channel.tryLock();
+            }
+            catch (IOException e)
+            {
+                // also on some other platforms (for example reported for Linux
+                // Mint, locks are not supported on SMB shares)
+
+                PortfolioLog.warning(MessageFormat.format("Failed to aquire lock {0} with message {1}", //$NON-NLS-1$
+                                file.getAbsolutePath(), e.getMessage()));
+            }
+
             ClientPersister persister = buildPersister(flags, password);
             persister.save(client, output);
+
+            output.flush();
+
+            if (lock != null && lock.isValid())
+                lock.release();
 
             if (updateFlags)
             {
@@ -787,8 +819,21 @@ public class ClientFactory
                 fixSourceAttributeOfTransactions(client);
             case 54: // NOSONAR
                 addKeyToTaxonomyClassifications(client);
-            case 55:
+            case 55: // NOSONAR
                 fixGrossValueUnits(client);
+            case 56: // NOSONAR
+                // migrate client filters into model (done when setting the
+                // client input as we do not have access to the preferences
+                // here)
+
+                // remove obsolete MARKET properties
+                removeMarketSecurityProperty(client);
+            case 57: // NOSONAR
+                // remove securities in watchlists which are not present in "all
+                // securities", see #3452
+                removeWronglyAddedSecurities(client);
+            case 58:
+                fixDataSeriesLabelForAccumulatedTaxes(client);
 
                 client.setVersion(Client.CURRENT_VERSION);
                 break;
@@ -962,7 +1007,7 @@ public class ClientFactory
 
         for (Object element : category.getElements())
         {
-            Assignment assignment = element instanceof Account ? new Assignment((Account) element)
+            Assignment assignment = element instanceof Account account ? new Assignment(account)
                             : new Assignment((Security) element);
             assignment.setRank(rank++);
 
@@ -1207,8 +1252,8 @@ public class ClientFactory
             for (AttributeType t : typesWithQuotes)
             {
                 Object value = attributes.get(t);
-                if (value instanceof Long)
-                    attributes.put(t, ((Long) value).longValue() * decimalPlacesAdded);
+                if (value instanceof Long l)
+                    attributes.put(t, l.longValue() * decimalPlacesAdded);
             }
         });
     }
@@ -1305,9 +1350,8 @@ public class ClientFactory
             for (AttributeType t : typesWithLimit)
             {
                 Object value = attributes.get(t);
-                if (value instanceof LimitPrice)
+                if (value instanceof LimitPrice lp)
                 {
-                    LimitPrice lp = (LimitPrice) value;
                     attributes.put(t, new LimitPrice(lp.getRelationalOperator(), lp.getValue() * 10000));
                 }
             }
@@ -1473,6 +1517,40 @@ public class ClientFactory
         }
     }
 
+    private static void removeMarketSecurityProperty(Client client)
+    {
+        for (Security security : client.getSecurities())
+            security.removePropertyIf(p -> p == null || p.getType() == SecurityProperty.Type.MARKET);
+    }
+
+    private static void removeWronglyAddedSecurities(Client client)
+    {
+        client.getWatchlists() //
+                        .forEach(w -> new ArrayList<>(w.getSecurities()) //
+                                        .forEach(s -> {
+                                            if (!client.getSecurities().contains(s))
+                                            {
+                                                if (s.getTransactions(client).isEmpty())
+                                                    w.getSecurities().remove(s);
+                                                else
+                                                    client.addSecurity(s);
+                                            }
+                                        }));
+    }
+
+    private static void fixDataSeriesLabelForAccumulatedTaxes(Client client)
+    {
+        if (!client.getSettings().hasConfigurationSet("StatementOfAssetsHistoryView-PICKER")) //$NON-NLS-1$
+            return;
+
+        var configSet = client.getSettings().getConfigurationSet("StatementOfAssetsHistoryView-PICKER"); //$NON-NLS-1$
+
+        configSet.getConfigurations() //
+                        .filter(config -> config.getData() != null) //
+                        .forEach(config -> config.setData(config.getData() //
+                                        .replace("Client-taxes;", "Client-taxes_accumulated;"))); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
     @SuppressWarnings("nls")
     private static synchronized XStream xstream()
     {
@@ -1498,6 +1576,7 @@ public class ClientFactory
                             new PortfolioTransactionConverter(xstream.getMapper(), xstream.getReflectionProvider()));
 
             xstream.registerConverter(new MapConverter(xstream.getMapper(), TypedMap.class));
+            xstream.registerConverter(new XStreamArrayListConverter(xstream.getMapper()));
 
             xstream.useAttributeFor(Money.class, "amount");
             xstream.useAttributeFor(Money.class, "currencyCode");

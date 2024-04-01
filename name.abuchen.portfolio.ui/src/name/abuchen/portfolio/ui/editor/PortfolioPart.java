@@ -3,18 +3,18 @@ package name.abuchen.portfolio.ui.editor;
 import java.io.File;
 import java.io.IOException;
 import java.text.MessageFormat;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
+import org.eclipse.core.runtime.preferences.IEclipsePreferences;
 import org.eclipse.e4.core.contexts.ContextFunction;
 import org.eclipse.e4.core.contexts.ContextInjectionFactory;
 import org.eclipse.e4.core.contexts.EclipseContextFactory;
@@ -41,7 +41,6 @@ import org.eclipse.swt.layout.FormData;
 import org.eclipse.swt.layout.FormLayout;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
-import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.Label;
 import org.eclipse.swt.widgets.ProgressBar;
 import org.eclipse.swt.widgets.Shell;
@@ -57,6 +56,7 @@ import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
 import name.abuchen.portfolio.ui.editor.Navigation.Item;
+import name.abuchen.portfolio.ui.util.Colors;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.swt.SashLayout;
 import name.abuchen.portfolio.ui.util.swt.SashLayoutData;
@@ -243,7 +243,7 @@ public class PortfolioPart implements ClientInputListener
         ProgressBar bar = null;
 
         container = new Composite(parent, SWT.NONE);
-        container.setBackground(Display.getDefault().getSystemColor(SWT.COLOR_WHITE));
+        container.setBackground(Colors.WHITE);
         container.setLayout(new FormLayout());
 
         Label image = new Label(container, SWT.NONE);
@@ -285,8 +285,8 @@ public class PortfolioPart implements ClientInputListener
 
         data = new FormData();
         data.top = new FormAttachment(image, 40);
-        data.left = new FormAttachment(50, -100);
-        data.width = 200;
+        data.left = new FormAttachment(0, 10);
+        data.right = new FormAttachment(100, -10);
         label.setLayoutData(data);
 
         return bar;
@@ -438,12 +438,23 @@ public class PortfolioPart implements ClientInputListener
         return clientInput.getClient();
     }
 
+    /**
+     * Returns the preferences store per data file.
+     */
     public IPreferenceStore getPreferenceStore()
     {
         return clientInput.getPreferenceStore();
     }
 
-    public List<ReportingPeriod> getReportingPeriods()
+    /**
+     * Returns the eclipse preferences which exist per installation.
+     */
+    public IEclipsePreferences getEclipsePreferences()
+    {
+        return clientInput.getEclipsePreferences();
+    }
+
+    public ReportingPeriods getReportingPeriods()
     {
         return clientInput.getReportingPeriods();
     }
@@ -476,8 +487,8 @@ public class PortfolioPart implements ClientInputListener
 
         if (selectedPeriod == null)
         {
-            List<ReportingPeriod> periods = clientInput.getReportingPeriods();
-            selectedPeriod = periods.isEmpty() ? new ReportingPeriod.LastX(1, 0) : periods.get(0);
+            selectedPeriod = clientInput.getReportingPeriods().stream().findFirst()
+                            .orElseGet(() -> new ReportingPeriod.LastX(1, 0));
         }
 
         return selectedPeriod;

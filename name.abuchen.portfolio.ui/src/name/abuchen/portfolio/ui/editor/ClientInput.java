@@ -1,5 +1,6 @@
 package name.abuchen.portfolio.ui.editor;
 
+import java.beans.PropertyChangeListener;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -14,7 +15,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Platform;
@@ -45,7 +46,6 @@ import name.abuchen.portfolio.model.ClientFactory;
 import name.abuchen.portfolio.model.SaveFlag;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
-import name.abuchen.portfolio.snapshot.ReportingPeriod;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.PortfolioPlugin;
 import name.abuchen.portfolio.ui.UIConstants;
@@ -60,8 +60,6 @@ import name.abuchen.portfolio.ui.wizards.client.ClientMigrationDialog;
 
 public class ClientInput
 {
-    // compatibility: the value used to be stored in the AbstractHistoricView
-    private static final String REPORTING_PERIODS_KEY = "AbstractHistoricView"; //$NON-NLS-1$
 
     public static final String DEFAULT_RELATIVE_BACKUP_FOLDER = "backups"; //$NON-NLS-1$
 
@@ -73,7 +71,7 @@ public class ClientInput
 
     private PreferenceStore preferenceStore = new PreferenceStore();
     private ExchangeRateProviderFactory exchangeRateProviderFacory;
-    private List<ReportingPeriod> reportingPeriods;
+    private ReportingPeriods reportingPeriods;
 
     private boolean isDirty = false;
     private List<Job> regularJobs = new ArrayList<>();
@@ -176,9 +174,20 @@ public class ClientInput
         return exchangeRateProviderFacory;
     }
 
+    /**
+     * Returns the preferences store per data file.
+     */
     public PreferenceStore getPreferenceStore()
     {
         return preferenceStore;
+    }
+
+    /**
+     * Returns the eclipse preferences which exist per installation.
+     */
+    public IEclipsePreferences getEclipsePreferences()
+    {
+        return preferences;
     }
 
     public void savePreferences()
@@ -357,8 +366,7 @@ public class ClientInput
 
     public void createBackupAfterOpen()
     {
-        if (clientFile != null && preferences.getBoolean(UIConstants.Preferences.CREATE_BACKUP_BEFORE_SAVING, true)
-                        && preferences.getInt(UIConstants.Preferences.AUTO_SAVE_FILE, 0) == 0)
+        if (clientFile != null && preferences.getBoolean(UIConstants.Preferences.CREATE_BACKUP_BEFORE_SAVING, true))
             createBackup(clientFile, "backup-after-open"); //$NON-NLS-1$
     }
 
@@ -449,8 +457,6 @@ public class ClientInput
         if (clientFile == null)
             return;
 
-        storeReportingPeriods();
-
         if (!forceWrite && !preferenceStore.needsSaving())
             return;
 
@@ -519,51 +525,13 @@ public class ClientInput
         }
     }
 
-    public List<ReportingPeriod> getReportingPeriods()
+    public ReportingPeriods getReportingPeriods()
     {
         if (reportingPeriods != null)
             return reportingPeriods;
 
-        List<ReportingPeriod> answer = new ArrayList<>();
-
-        String config = getPreferenceStore().getString(REPORTING_PERIODS_KEY);
-        if (config != null && config.trim().length() > 0)
-        {
-            String[] codes = config.split(";"); //$NON-NLS-1$
-            for (String c : codes)
-            {
-                try
-                {
-                    answer.add(ReportingPeriod.from(c));
-                }
-                catch (IOException | RuntimeException ignore)
-                {
-                    PortfolioPlugin.log(ignore);
-                }
-            }
-        }
-
-        if (answer.isEmpty())
-        {
-            for (int ii = 1; ii <= 3; ii++)
-                answer.add(new ReportingPeriod.LastX(ii, 0));
-        }
-
-        reportingPeriods = answer;
-
+        reportingPeriods = new ReportingPeriods(this);
         return reportingPeriods;
-    }
-
-    private void storeReportingPeriods()
-    {
-        if (reportingPeriods == null)
-            return;
-
-        StringBuilder buf = new StringBuilder();
-        for (ReportingPeriod p : reportingPeriods)
-            buf.append(p.getCode()).append(';');
-
-        getPreferenceStore().setValue(REPORTING_PERIODS_KEY, buf.toString());
     }
 
     @Inject
@@ -623,11 +591,11 @@ public class ClientInput
             {
                 for (Job j : regularJobs)
                 {
-                    if (j instanceof AutoSaveJob)
+                    if (j instanceof AutoSaveJob job)
                     {
-                        ((AutoSaveJob) j).setDelay(getAutoSavePrefs());
-                        ((AutoSaveJob) j).schedule(getAutoSavePrefs());
-                        ((AutoSaveJob) j).wakeUp(getAutoSavePrefs());
+                        job.setDelay(getAutoSavePrefs());
+                        job.schedule(getAutoSavePrefs());
+                        job.wakeUp(getAutoSavePrefs());
                     }
                 }
             }
@@ -662,8 +630,7 @@ public class ClientInput
 
         this.navigation = ContextInjectionFactory.make(Navigation.class, this.context, c2);
 
-        client.addPropertyChangeListener(event -> {
-
+        PropertyChangeListener listener = event -> {
             boolean recalculate = !"touch".equals(event.getPropertyName()); //$NON-NLS-1$
 
             // convenience: Client#markDirty can be called on any thread, but
@@ -678,9 +645,13 @@ public class ClientInput
             {
                 Display.getDefault().asyncExec(() -> setDirty(true, recalculate));
             }
-        });
+        };
+        client.addPropertyChangeListener(listener);
+        disposeJobs.add(() -> client.removePropertyChangeListener(listener));
 
         loadPreferences();
+
+        upgradePreferences(preferenceStore, client);
 
         scheduleOnlineUpdateJobs();
 
@@ -697,8 +668,17 @@ public class ClientInput
         }
     }
 
+    private static void upgradePreferences(PreferenceStore preferenceStore, Client client)
+    {
+        if (client.shouldDoFilterMigration())
+        {
+            new ClientFilterMigration(preferenceStore, client).migrateClientFilter();
+        }
+    }
+
     /* package */ void notifyListeners(Consumer<ClientInputListener> consumer)
     {
         this.listeners.forEach(consumer::accept);
     }
+
 }

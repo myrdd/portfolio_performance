@@ -1,5 +1,6 @@
 package name.abuchen.portfolio.util;
 
+import java.text.Collator;
 import java.text.DecimalFormatSymbols;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -9,20 +10,29 @@ public final class TextUtil
 {
     public static final String PARAGRAPH_BREAK = "\n\n"; //$NON-NLS-1$
 
+    public static final char DECIMAL_SEPARATOR = new DecimalFormatSymbols().getDecimalSeparator();
+
     private static final String VALID_NUM_CHARACTERS = "0123456789,.'-"; //$NON-NLS-1$
 
-    public static final char DECIMAL_SEPARATOR = new DecimalFormatSymbols().getDecimalSeparator();
+    private static final Collator COLLATOR = Collator.getInstance();
 
     private TextUtil()
     {
     }
 
+    /**
+     * Word-wraps the input text, ensuring that no line exceeds 80 characters in
+     * length. Inserts line breaks at appropriate spaces (whitespace,
+     * punctuation) to achieve a visually pleasing and readable format.
+     * Additionally, handles the escape of '&' characters to ensure they are
+     * displayed correctly.
+     */
     public static final String wordwrap(String text)
     {
         if (text == null)
             return null;
 
-        // add a space to correctly match a full line
+        // Add a space to correctly match a full line
         String raw = text + " "; //$NON-NLS-1$
 
         StringBuilder wrapped = new StringBuilder();
@@ -35,28 +45,44 @@ public final class TextUtil
 
             String fragment = raw.substring(m.start(), m.end());
 
-            // if fragment includes a line-break, do not add another one
+            // If the fragment includes a line-break, do not add another one
             if (fragment.length() > 0 && fragment.charAt(fragment.length() - 1) == '\n')
                 fragment = fragment.substring(0, fragment.length() - 1);
 
+            // Replace '&' with '&&' to handle escape for correct display
             wrapped.append(fragment.replace("&", "&&")); //$NON-NLS-1$ //$NON-NLS-2$
         }
 
-        // remove added space used for line breaking
+        // Remove the added space used for line breaking
         return wrapped.substring(0, wrapped.length() - 1);
     }
 
+    /**
+     * Creates a tooltip text by escaping '&' characters to ensure correct
+     * display in graphical user interfaces.
+     */
     public static final String tooltip(String text)
     {
         return text == null ? null : text.replace("&", "&&"); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
+    /**
+     * Sanitizes a given filename by filtering out characters that may cause
+     * issues in file systems. Replaces characters such as ?, \, /, :, |, <, >,
+     * //, and * with spaces, and removes multiple spaces by replacing them with
+     * underscores.
+     */
     public static final String sanitizeFilename(String filename)
     {
-        // filter ? \ / : | < > // *
+        /*
+         * Filter out characters that may cause issues in file systems Filter: ?
+         * \ / : | < > // *
+         */
         filename = filename.replaceAll("[\\?\\\\/:|<>\\*]", " "); //$NON-NLS-1$ //$NON-NLS-2$
-        // replace multiple spaces
+
+        // Replace multiple spaces with underscores
         filename = filename.replaceAll("\\s+", "_"); //$NON-NLS-1$ //$NON-NLS-2$
+
         return filename;
     }
 
@@ -86,12 +112,16 @@ public final class TextUtil
 
     }
 
+    /**
+     * Checks if the specified character is a whitespace character, a space
+     * character, or the zero-width non-breaking space.
+     */
     public static boolean isWhitespace(char c)
     {
         if (Character.isWhitespace(c) || Character.isSpaceChar(c))
             return true;
 
-        return c == '\uFEFF'; // zero width no-break space
+        return c == '\uFEFF'; // zero-width non-breaking space
     }
 
     /**
@@ -112,7 +142,7 @@ public final class TextUtil
     }
 
     /**
-     * Removes all blanks from the given string.
+     * Removes all whitespace characters from the input string.
      */
     public static String stripBlanks(String input)
     {
@@ -120,11 +150,20 @@ public final class TextUtil
     }
 
     /**
-     * Remove all blanks followed by underscores from the given string.
+     * Removes all whitespace characters and underscores from the input string.
      */
     public static String stripBlanksAndUnderscores(String input)
     {
         return input == null ? null : Pattern.compile("[\\s_]").matcher(input).replaceAll(""); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Replaces multiple consecutive whitespace characters in the input string
+     * with a single space.
+     */
+    public static String replaceMultipleBlanks(String input)
+    {
+        return input == null ? null : Pattern.compile("\\s+").matcher(input).replaceAll(" "); //$NON-NLS-1$ //$NON-NLS-2$
     }
 
     /**
@@ -145,13 +184,28 @@ public final class TextUtil
         return ((start > 0) || (len < value.length())) ? value.substring(start, len) : value;
     }
 
+    /**
+     * Removes all tags from the given input
+     */
+    public static String stripTags(String input)
+    {
+        if (input == null || input.isEmpty())
+            return input;
+        return input.replaceAll("<[^>]*>", ""); //$NON-NLS-1$ //$NON-NLS-2$
+    }
+
+    /**
+     * Retrieves the appropriate list separator character based on the default
+     * locale. Handles Switzerland differently, using a semicolon as a list
+     * separator if the locale is Swiss.
+     */
     public static char getListSeparatorChar()
     {
-        // handle Switzerland differently because it uses a point as decimal
+        // Handle Switzerland differently because it uses a point as a decimal
         // separator but a semicolon as a list separator
-
         if ("CH".equals(Locale.getDefault().getCountry())) //$NON-NLS-1$
             return ';';
+
         return DECIMAL_SEPARATOR == ',' ? ';' : ',';
     }
 
@@ -211,5 +265,45 @@ public final class TextUtil
             return json.substring(start, end);
 
         return json;
+    }
+
+    /**
+     * Limits the length of a text string, truncating it if necessary and
+     * appending an ellipsis ("…") to indicate truncation.
+     */
+    public static String limit(String text, int maxLength)
+    {
+        if (text == null)
+            return null;
+
+        int textLength = text.length();
+
+        return textLength <= maxLength ? text : text.substring(0, maxLength) + "…"; //$NON-NLS-1$
+    }
+
+    /**
+     * Performs a locale-sensitive comparison of two strings using Java Text
+     * Collator.
+     */
+    public static int compare(String left, String right)
+    {
+        return COLLATOR.compare(left, right);
+    }
+
+    /**
+     * Concatenates two strings with a specified separator.
+     */
+    public static String concatenate(String first, String second, String separator)
+    {
+        if (first == null && second == null)
+            return null;
+
+        if (first != null && second == null)
+            return first;
+
+        if (first != null && first.equals(second))
+            return first;
+
+        return first == null ? second : first + separator + second;
     }
 }

@@ -4,12 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.e4.core.contexts.ContextInjectionFactory;
 import org.eclipse.e4.core.contexts.EclipseContextFactory;
 import org.eclipse.e4.core.contexts.IEclipseContext;
+import org.eclipse.e4.ui.services.IStylingEngine;
 import org.eclipse.jface.action.IMenuListener;
 import org.eclipse.jface.action.MenuManager;
 import org.eclipse.jface.action.ToolBarManager;
@@ -42,6 +43,9 @@ public abstract class AbstractFinanceView
 
     @Inject
     private IEclipseContext context;
+
+    @Inject
+    private IStylingEngine stylingEngine;
 
     @Inject
     private PortfolioPart part;
@@ -355,4 +359,8 @@ public abstract class AbstractFinanceView
         context.set(key, value);
     }
 
+    public IStylingEngine getStylingEngine()
+    {
+        return stylingEngine;
+    }
 }

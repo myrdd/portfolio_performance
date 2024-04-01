@@ -4,21 +4,22 @@ import static name.abuchen.portfolio.ui.util.FormDataFactory.startingWith;
 import static name.abuchen.portfolio.ui.util.SWTHelper.amountWidth;
 import static name.abuchen.portfolio.ui.util.SWTHelper.currencyWidth;
 import static name.abuchen.portfolio.ui.util.SWTHelper.widest;
+import static name.abuchen.portfolio.ui.util.SWTHelper.getAverageCharWidth;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.Collections;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
 import org.eclipse.e4.core.di.extensions.Preference;
 import org.eclipse.e4.ui.services.IServiceConstants;
+import org.eclipse.e4.ui.services.IStylingEngine;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.Composite;
@@ -32,7 +33,6 @@ import name.abuchen.portfolio.model.Portfolio;
 import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.TransactionPair;
-import name.abuchen.portfolio.money.CurrencyUnit;
 import name.abuchen.portfolio.money.ExchangeRateProviderFactory;
 import name.abuchen.portfolio.money.Values;
 import name.abuchen.portfolio.ui.Messages;
@@ -42,6 +42,9 @@ import name.abuchen.portfolio.ui.util.SWTHelper;
 
 public class SecurityTransactionDialog extends AbstractTransactionDialog // NOSONAR
 {
+    @Inject
+    private IStylingEngine stylingEngine;
+
     @Inject
     private Client client;
 
@@ -100,18 +103,19 @@ public class SecurityTransactionDialog extends AbstractTransactionDialog // NOSO
         portfolio.value.setInput(including(client.getActivePortfolios(), model().getPortfolio()));
         portfolio.bindValue(Properties.portfolio.name(), Messages.MsgMissingPortfolio);
 
-        ComboInput comboInput = new ComboInput(editArea, null);
-        if (model() instanceof BuySellModel)
+        Object currencyInput;
+        if (model() instanceof BuySellModel buySellModel)
         {
-            comboInput.value.setInput(including(client.getActiveAccounts(), ((BuySellModel) model()).getAccount()));
+            ComboInput comboInput = new ComboInput(editArea, null);
+            comboInput.value.setInput(including(client.getActiveAccounts(), buySellModel.getAccount()));
             comboInput.bindValue(Properties.account.name(), Messages.MsgMissingAccount);
+            currencyInput = comboInput;
         }
         else
         {
-            List<CurrencyUnit> availableCurrencies = CurrencyUnit.getAvailableCurrencyUnits();
-            Collections.sort(availableCurrencies);
-            comboInput.value.setInput(availableCurrencies);
-            comboInput.bindValue(Properties.transactionCurrency.name(), Messages.MsgMissingAccount);
+            CurrencyInput comboInput = new CurrencyInput(editArea);
+            comboInput.bindValue(Properties.transactionCurrency.name());
+            currencyInput = comboInput;
         }
 
         // date + time
@@ -200,14 +204,23 @@ public class SecurityTransactionDialog extends AbstractTransactionDialog // NOSO
         // form layout
         //
 
+        // measuring the width requires that the font has been applied before
+        stylingEngine.style(editArea);
+
         int width = amountWidth(grossValue.value);
         int currencyWidth = currencyWidth(grossValue.currency);
         int labelWidth = widest(securities.label, portfolio.label, dateTime.label, shares.label, lblNote);
 
-        startingWith(securities.value.getControl(), securities.label).suffix(securities.currency)
-                        .thenBelow(portfolio.value.getControl()).label(portfolio.label)
-                        .suffix(comboInput.value.getControl()) //
-                        .thenBelow(dateTime.date.getControl()).label(dateTime.label).thenRight(dateTime.time)
+        var factory = startingWith(securities.value.getControl(), securities.label).suffix(securities.currency)
+                        .thenBelow(portfolio.value.getControl()).label(portfolio.label);
+
+        if (currencyInput instanceof ComboInput input)
+            factory.suffix(input.value.getControl());
+        else if (currencyInput instanceof CurrencyInput input)
+            factory.thenRight(input.currencyCode).width((int) Math.round(10 * getAverageCharWidth(input.currencyCode)))
+                            .suffix(input.description);
+
+        factory.thenBelow(dateTime.date.getControl()).label(dateTime.label).thenRight(dateTime.time)
                         .thenRight(dateTime.button, 0);
 
         startingWith(securities.label).width(labelWidth);
@@ -333,10 +346,24 @@ public class SecurityTransactionDialog extends AbstractTransactionDialog // NOSO
         model().setSource(entry);
     }
 
+    public void presetBuySellEntry(BuySellEntry entry)
+    {
+        if (!model().accepts(entry.getPortfolioTransaction().getType()))
+            throw new IllegalArgumentException();
+        model().presetFromSource(entry);
+    }
+
     public void setDeliveryTransaction(TransactionPair<PortfolioTransaction> pair)
     {
         if (!model().accepts(pair.getTransaction().getType()))
             throw new IllegalArgumentException();
         model().setSource(pair);
+    }
+
+    public void presetDeliveryTransaction(TransactionPair<PortfolioTransaction> pair)
+    {
+        if (!model().accepts(pair.getTransaction().getType()))
+            throw new IllegalArgumentException();
+        model().presetFromSource(pair);
     }
 }

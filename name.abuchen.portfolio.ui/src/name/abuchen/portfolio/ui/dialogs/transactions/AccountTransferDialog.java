@@ -9,9 +9,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.eclipse.core.databinding.beans.typed.BeanProperties;
 import org.eclipse.core.databinding.observable.value.IObservableValue;
@@ -20,6 +20,7 @@ import org.eclipse.core.databinding.validation.ValidationStatus;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.e4.core.di.extensions.Preference;
 import org.eclipse.e4.ui.services.IServiceConstants;
+import org.eclipse.e4.ui.services.IStylingEngine;
 import org.eclipse.jface.databinding.swt.typed.WidgetProperties;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.widgets.Composite;
@@ -61,6 +62,9 @@ public class AccountTransferDialog extends AbstractTransactionDialog // NOSONAR
                             : ValidationStatus.error(Messages.MsgAccountMustBeDifferent);
         }
     }
+
+    @Inject
+    private IStylingEngine stylingEngine;
 
     @Inject
     private Client client;
@@ -180,6 +184,9 @@ public class AccountTransferDialog extends AbstractTransactionDialog // NOSONAR
                         .thenBelow(valueNote).height(SWTHelper.lineHeight(valueNote) * 3)
                         .left(target.value.getControl()).right(amount.value).label(lblNote);
 
+        // measuring the width requires that the font has been applied before
+        stylingEngine.style(editArea);
+
         int widest = widest(source.label, target.label, dateTime.label, fxAmount.label, lblNote);
         startingWith(source.label).width(widest);
 
@@ -216,6 +223,11 @@ public class AccountTransferDialog extends AbstractTransactionDialog // NOSONAR
     public void setEntry(AccountTransferEntry entry)
     {
         model().setSource(entry);
+    }
+
+    public void presetEntry(AccountTransferEntry entry)
+    {
+        model().presetFromSource(entry);
     }
 
 }

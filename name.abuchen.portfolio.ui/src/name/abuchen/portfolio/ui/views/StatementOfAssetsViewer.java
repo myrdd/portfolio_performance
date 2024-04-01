@@ -1,5 +1,7 @@
 package name.abuchen.portfolio.ui.views;
 
+import static name.abuchen.portfolio.util.CollectorsUtil.toMutableList;
+
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -13,8 +15,8 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.eclipse.e4.core.di.extensions.Preference;
 import org.eclipse.e4.ui.services.IStylingEngine;
@@ -93,6 +95,7 @@ import name.abuchen.portfolio.ui.util.LabelOnly;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.viewers.Column;
 import name.abuchen.portfolio.ui.util.viewers.ColumnEditingSupport;
+import name.abuchen.portfolio.ui.util.viewers.ColumnEditingSupport.MarkDirtyClientListener;
 import name.abuchen.portfolio.ui.util.viewers.ColumnEditingSupport.TouchClientListener;
 import name.abuchen.portfolio.ui.util.viewers.ColumnViewerSorter;
 import name.abuchen.portfolio.ui.util.viewers.CopyPasteSupport;
@@ -103,6 +106,7 @@ import name.abuchen.portfolio.ui.util.viewers.SharesLabelProvider;
 import name.abuchen.portfolio.ui.util.viewers.ShowHideColumnHelper;
 import name.abuchen.portfolio.ui.util.viewers.StringEditingSupport;
 import name.abuchen.portfolio.ui.views.columns.AttributeColumn;
+import name.abuchen.portfolio.ui.views.columns.DistanceFromAllTimeHighColumn;
 import name.abuchen.portfolio.ui.views.columns.DistanceFromMovingAverageColumn;
 import name.abuchen.portfolio.ui.views.columns.IsinColumn;
 import name.abuchen.portfolio.ui.views.columns.NameColumn;
@@ -569,7 +573,7 @@ public class StatementOfAssetsViewer
 
         // create a modifiable copy as all menus share the same list of
         // reporting periods
-        List<ReportingPeriod> options = new ArrayList<>(owner.getPart().getReportingPeriods());
+        List<ReportingPeriod> options = owner.getPart().getReportingPeriods().stream().collect(toMutableList());
 
         addPerformanceColumns(options);
         addDividendColumns(options);
@@ -578,6 +582,10 @@ public class StatementOfAssetsViewer
         addCurrencyColumns();
 
         column = new DistanceFromMovingAverageColumn(() -> model.getDate());
+        column.getSorter().wrap(ElementComparator::new);
+        support.addColumn(column);
+
+        column = new DistanceFromAllTimeHighColumn(() -> model.getDate(), options);
         column.getSorter().wrap(ElementComparator::new);
         support.addColumn(column);
 
@@ -598,7 +606,7 @@ public class StatementOfAssetsViewer
         stylingEngine.style(assets.getTable());
 
         LocalResourceManager resources = new LocalResourceManager(JFaceResources.getResources(), assets.getTable());
-        boldFont = resources.createFont(FontDescriptor.createFrom(assets.getTable().getFont()).setStyle(SWT.BOLD));
+        boldFont = resources.create(FontDescriptor.createFrom(assets.getTable().getFont()).setStyle(SWT.BOLD));
 
         return container;
     }
@@ -749,7 +757,7 @@ public class StatementOfAssetsViewer
                         .forEach(column -> {
                             if (column.getSorter() != null)
                                 column.getSorter().wrap(ElementComparator::new);
-                            column.getEditingSupport().addListener(new TouchClientListener(client));
+                            column.getEditingSupport().addListener(new MarkDirtyClientListener(client));
                             support.addColumn(column);
                         });
     }
@@ -1380,12 +1388,12 @@ public class StatementOfAssetsViewer
             if (value == null)
                 return null;
 
-            if (value instanceof Money)
-                return Values.Money.format((Money) value, client.getBaseCurrency());
-            else if (value instanceof Quote)
-                return Values.CalculatedQuote.format((Quote) value, client.getBaseCurrency());
-            else if (value instanceof Double)
-                return Values.Percent2.format((Double) value);
+            if (value instanceof Money money)
+                return Values.Money.format(money, client.getBaseCurrency());
+            else if (value instanceof Quote quote)
+                return Values.CalculatedQuote.format(quote, client.getBaseCurrency());
+            else if (value instanceof Double d)
+                return Values.Percent2.format(d);
 
             return null;
         }
@@ -1401,12 +1409,12 @@ public class StatementOfAssetsViewer
                 return null;
 
             double doubleValue = 0;
-            if (value instanceof Money)
-                doubleValue = ((Money) value).getAmount();
-            else if (value instanceof Quote)
-                doubleValue = ((Quote) value).getAmount();
-            else if (value instanceof Double)
-                doubleValue = (Double) value;
+            if (value instanceof Money money)
+                doubleValue = money.getAmount();
+            else if (value instanceof Quote quote)
+                doubleValue = quote.getAmount();
+            else if (value instanceof Double d)
+                doubleValue = d;
 
             if (doubleValue < 0)
                 return Colors.theme().redForeground();
@@ -1427,12 +1435,12 @@ public class StatementOfAssetsViewer
                 return null;
 
             double doubleValue = 0;
-            if (value instanceof Money)
-                doubleValue = ((Money) value).getAmount();
-            else if (value instanceof Quote)
-                doubleValue = ((Quote) value).getAmount();
-            else if (value instanceof Double)
-                doubleValue = (Double) value;
+            if (value instanceof Money money)
+                doubleValue = money.getAmount();
+            else if (value instanceof Quote quote)
+                doubleValue = quote.getAmount();
+            else if (value instanceof Double d)
+                doubleValue = d;
 
             if (doubleValue > 0)
                 return Images.GREEN_ARROW.image();

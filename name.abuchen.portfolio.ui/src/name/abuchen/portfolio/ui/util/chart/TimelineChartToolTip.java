@@ -87,6 +87,11 @@ public class TimelineChartToolTip extends AbstractChartToolTip
         this.defaultValueFormat = defaultValueFormat;
     }
 
+    public Format getDefaultValueFormat()
+    {
+        return this.defaultValueFormat;
+    }
+
     public void overrideValueFormat(String series, Format valueFormat)
     {
         this.overrideValueFormat.put(series, valueFormat);
@@ -116,7 +121,7 @@ public class TimelineChartToolTip extends AbstractChartToolTip
     }
 
     @Override
-    protected Object getFocusObjectAt(Event event)
+    protected final Object getFocusObjectAt(Event event)
     {
         return categoryEnabled ? getFocusCategoryAt(event) : getFocusDateAt(event);
     }
@@ -208,12 +213,12 @@ public class TimelineChartToolTip extends AbstractChartToolTip
         {
             ISeries series = value.getKey();
 
-            Color color = series instanceof ILineSeries ? ((ILineSeries) series).getLineColor()
+            Color color = series instanceof ILineSeries lineSeries ? lineSeries.getLineColor()
                             : ((IBarSeries) series).getBarColor();
 
             ColoredLabel cl = new ColoredLabel(data, SWT.NONE);
             cl.setBackdropColor(color);
-            cl.setText(series.getId());
+            cl.setText(series.getDescription() != null ? series.getDescription() : series.getId());
             GridDataFactory.fillDefaults().grab(true, false).applyTo(cl);
 
             right = new Label(data, SWT.RIGHT);
@@ -227,8 +232,8 @@ public class TimelineChartToolTip extends AbstractChartToolTip
 
         Label hint = new Label(data, SWT.NONE);
         hint.setText(Messages.TooltipHintPressAlt);
-        hint.setFont(this.resourceManager.createFont(
-                        FontDescriptor.createFrom(data.getFont()).increaseHeight(-3).withStyle(SWT.ITALIC)));
+        hint.setFont(this.resourceManager
+                        .create(FontDescriptor.createFrom(data.getFont()).increaseHeight(-3).withStyle(SWT.ITALIC)));
         GridDataFactory.fillDefaults().span(2, 1).applyTo(hint);
     }
 
@@ -243,6 +248,7 @@ public class TimelineChartToolTip extends AbstractChartToolTip
 
             double value;
 
+
             if (categoryEnabled)
             {
                 int line = (Integer) getFocusedObject();
@@ -252,10 +258,23 @@ public class TimelineChartToolTip extends AbstractChartToolTip
             }
             else
             {
-                int line = Arrays.binarySearch(series.getXDateSeries(), getFocusedObject());
-                if (line < 0)
+                var dateSeries = series.getXDateSeries();
+                int line = Arrays.binarySearch(dateSeries, getFocusedObject());
+                
+                if (line >= 0)
+                {
+                    // user hit the pixel, show value
+                    value = series.getYSeries()[line];
+                }
+                else if (line == -1 || line == -dateSeries.length - 1)
+                {
+                    // pixel is before or after data series, show nothing
                     continue;
-                value = series.getYSeries()[line];
+                }
+                else
+                {
+                    value = series.getYSeries()[Math.max(0, -line - 2)];                    
+                }
             }
 
             values.add(new Pair<>(series, value));
@@ -268,10 +287,10 @@ public class TimelineChartToolTip extends AbstractChartToolTip
     {
         if (xAxisFormat != null)
             return xAxisFormat.apply(obj);
-        else if (categoryEnabled && obj instanceof Integer)
-            return getChart().getAxisSet().getXAxis(0).getCategorySeries()[(Integer) obj];
-        else if (obj instanceof Date)
-            return Values.Date.format(((Date) obj).toInstant().atZone(ZoneId.systemDefault()).toLocalDate());
+        else if (categoryEnabled && obj instanceof Integer integer)
+            return getChart().getAxisSet().getXAxis(0).getCategorySeries()[integer];
+        else if (obj instanceof Date date)
+            return Values.Date.format(date.toInstant().atZone(ZoneId.systemDefault()).toLocalDate());
         else
             return String.valueOf(obj);
     }

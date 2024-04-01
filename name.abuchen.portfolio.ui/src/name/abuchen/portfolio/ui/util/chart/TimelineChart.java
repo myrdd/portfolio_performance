@@ -1,19 +1,22 @@
 package name.abuchen.portfolio.ui.util.chart;
 
+import java.text.DecimalFormat;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.Period;
 import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
 
 import org.eclipse.jface.action.IMenuManager;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.events.PaintEvent;
+import org.eclipse.swt.events.PaintListener;
 import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.widgets.Composite;
@@ -34,16 +37,6 @@ import name.abuchen.portfolio.ui.util.Colors;
 
 public class TimelineChart extends Chart // NOSONAR
 {
-
-    /**
-     * pixel threshold below which sparse label mode is used. The value is a bit arbitrary, but should be fine.
-     */
-    private static final int SPARSE_LABEL_MODE_PIXEL_THRESHOLD = 320;
-    
-    /**
-     * Minimum label width in pixels. Used to suppress last x-axis labels that are too short to be useful.
-     */
-    private static final int MIN_LABEL_WIDTH = 50;
 
     private static class MarkerLine
     {
@@ -85,7 +78,9 @@ public class TimelineChart extends Chart // NOSONAR
 
     private List<MarkerLine> markerLines = new ArrayList<>();
     private List<NonTradingDayMarker> nonTradingDayMarkers = new ArrayList<>();
+    private Map<Object, IAxis> addedAxis = new HashMap<>();
 
+    private ChartToolsManager chartTools;
     private TimelineChartToolTip toolTip;
     private ChartContextMenu contextMenu;
 
@@ -115,6 +110,15 @@ public class TimelineChart extends Chart // NOSONAR
         y2Axis.getTick().setVisible(false);
         y2Axis.getGrid().setStyle(LineStyle.NONE);
         y2Axis.setPosition(Position.Primary);
+        
+        // 3rd y axis (percentage)
+        int axisId3rd = getAxisSet().createYAxis();
+        IAxis y3Axis = getAxisSet().getYAxis(axisId3rd);
+        y3Axis.getTitle().setVisible(false);
+        y3Axis.getTick().setVisible(false);
+        y3Axis.getTick().setFormat(new DecimalFormat("+#.##%;-#.##%")); //$NON-NLS-1$
+        y3Axis.getGrid().setStyle(LineStyle.NONE);
+        y3Axis.setPosition(Position.Primary);
 
         ((IPlotArea) getPlotArea()).addCustomPaintListener(new ICustomPaintListener()
         {
@@ -122,21 +126,7 @@ public class TimelineChart extends Chart // NOSONAR
             public void paintControl(PaintEvent e)
             {
                 paintTimeGrid(e);
-            }
-
-            @Override
-            public boolean drawBehindSeries()
-            {
-                return true;
-            }
-        });
-
-        ((IPlotArea) getPlotArea()).addCustomPaintListener(new ICustomPaintListener()
-        {
-            @Override
-            public void paintControl(PaintEvent eventNonTradingDay)
-            {
-                paintNonTradingDayMarker(eventNonTradingDay);
+                paintNonTradingDayMarker(e);
             }
 
             @Override
@@ -149,6 +139,8 @@ public class TimelineChart extends Chart // NOSONAR
         getPlotArea().addPaintListener(this::paintMarkerLines);
 
         toolTip = new TimelineChartToolTip(this);
+
+        chartTools = new ChartToolsManager(this);
 
         ZoomMouseWheelListener.attachTo(this);
         MovePlotKeyListener.attachTo(this);
@@ -190,19 +182,39 @@ public class TimelineChart extends Chart // NOSONAR
         this.nonTradingDayMarkers.clear();
     }
 
-    public ILineSeries addDateSeries(LocalDate[] dates, double[] values, String label)
+    public void addPlotPaintListener(PaintListener listener)
     {
-        return addDateSeries(dates, values, Colors.BLACK, false, label);
+        ((IPlotArea) getPlotArea()).addCustomPaintListener(new ICustomPaintListener()
+        {
+            @Override
+            public void paintControl(PaintEvent e)
+            {
+                listener.paintControl(e);
+            }
+
+            @Override
+            public boolean drawBehindSeries()
+            {
+                return false;
+            }
+        });
     }
 
-    public ILineSeries addDateSeries(LocalDate[] dates, double[] values, Color color, String label)
+    public ILineSeries addDateSeries(String id, LocalDate[] dates, double[] values, String label)
     {
-        return addDateSeries(dates, values, color, false, label);
+        return addDateSeries(id, dates, values, Colors.BLACK, false, label);
     }
 
-    private ILineSeries addDateSeries(LocalDate[] dates, double[] values, Color color, boolean showArea, String label)
+    public ILineSeries addDateSeries(String id, LocalDate[] dates, double[] values, Color color, String label)
     {
-        ILineSeries lineSeries = (ILineSeries) getSeriesSet().createSeries(SeriesType.LINE, label);
+        return addDateSeries(id, dates, values, color, false, label);
+    }
+
+    private ILineSeries addDateSeries(String id, LocalDate[] dates, double[] values, Color color, boolean showArea,
+                    String label)
+    {
+        ILineSeries lineSeries = (ILineSeries) getSeriesSet().createSeries(SeriesType.LINE, id);
+        lineSeries.setDescription(label);
         lineSeries.setXDateSeries(toJavaUtilDate(dates));
         lineSeries.enableArea(showArea);
         lineSeries.setLineWidth(2);
@@ -213,9 +225,10 @@ public class TimelineChart extends Chart // NOSONAR
         return lineSeries;
     }
 
-    public IBarSeries addDateBarSeries(LocalDate[] dates, double[] values, String label)
+    public IBarSeries addDateBarSeries(String id, LocalDate[] dates, double[] values, String label)
     {
-        IBarSeries barSeries = (IBarSeries) getSeriesSet().createSeries(SeriesType.BAR, label);
+        IBarSeries barSeries = (IBarSeries) getSeriesSet().createSeries(SeriesType.BAR, id);
+        barSeries.setDescription(label);
         barSeries.setXDateSeries(toJavaUtilDate(dates));
         barSeries.setYSeries(values);
         barSeries.setBarColor(Colors.DARK_GRAY);
@@ -229,6 +242,11 @@ public class TimelineChart extends Chart // NOSONAR
         return toolTip;
     }
 
+    public ChartToolsManager getChartToolsManager()
+    {
+        return chartTools;
+    }
+
     private void paintTimeGrid(PaintEvent e)
     {
         IAxis xAxis = getAxisSet().getXAxis(0);
@@ -238,87 +256,8 @@ public class TimelineChart extends Chart // NOSONAR
         LocalDate start = Instant.ofEpochMilli((long) range.lower).atZone(zoneId).toLocalDate();
         LocalDate end = Instant.ofEpochMilli((long) range.upper).atZone(zoneId).toLocalDate();
 
-        LocalDate cursor = start.getDayOfMonth() == 1 ? start : start.plusMonths(1).withDayOfMonth(1);
-        Period period;
-        DateTimeFormatter format;
-
-        long days = ChronoUnit.DAYS.between(start, end);
-        
-        if (e.width > SPARSE_LABEL_MODE_PIXEL_THRESHOLD)
-        {
-            if (days < 250)
-            {
-                period = Period.ofMonths(1);
-                format = DateTimeFormatter.ofPattern("MMMM yyyy"); //$NON-NLS-1$
-            }
-            else if (days < 800)
-            {
-                period = Period.ofMonths(3);
-                format = DateTimeFormatter.ofPattern("QQQ yyyy"); //$NON-NLS-1$
-                cursor = cursor.plusMonths((12 - cursor.getMonthValue() + 1) % 3);
-            }
-            else if (days < 1200)
-            {
-                period = Period.ofMonths(6);
-                format = DateTimeFormatter.ofPattern("QQQ yyyy"); //$NON-NLS-1$
-                cursor = cursor.plusMonths((12 - cursor.getMonthValue() + 1) % 6);
-            }
-            else
-            {
-                period = Period.ofYears(days > 5000 ? 2 : 1);
-                format = DateTimeFormatter.ofPattern("yyyy"); //$NON-NLS-1$
-    
-                if (cursor.getMonthValue() > 1)
-                    cursor = cursor.plusYears(1).withDayOfYear(1);
-            }
-        }
-        else
-        {
-            // Sparse labeling mode used in low width conditions.
-            // Its purpose is to ensure enough space between the labels to avoid overlays and ensure readability. 
-            // It is mainly relevant to charts embedded into dashboards with narrow columns.
-            if (days < 100)
-            {
-                period = Period.ofMonths(1);
-                format = DateTimeFormatter.ofPattern("MMMM yyyy"); //$NON-NLS-1$
-            }   
-            else if (days < 400)
-            {
-                period = Period.ofMonths(3);
-                format = DateTimeFormatter.ofPattern("QQQ yyyy"); //$NON-NLS-1$
-                cursor = cursor.plusMonths((12 - cursor.getMonthValue() + 1) % 3);
-            }
-            else
-            {
-                period = Period.ofYears(1);
-                format = DateTimeFormatter.ofPattern("yyyy"); //$NON-NLS-1$
-
-                if (cursor.getMonthValue() > 1)
-                    cursor = cursor.plusYears(1).withDayOfYear(1);
-            }          
-        }
-
-        e.gc.setForeground(getTitle().getForeground());
-
-        int previousLabelExtend = -1;
-        int xMax = xAxis.getPixelCoordinate(xAxis.getRange().upper);
-        while (cursor.isBefore(end))
-        {
-            int x = xAxis.getPixelCoordinate(cursor.atStartOfDay(zoneId).toInstant().toEpochMilli());
-            e.gc.drawLine(x, 0, x, e.height);
-            
-            if (isLabelable(x, xMax, previousLabelExtend)) 
-            {
-                String labelText = format.format(cursor);
-                int currentLabelX = x + 5;
-                e.gc.drawText(labelText, currentLabelX, 5, true);
-                
-                int textExtend = e.gc.textExtent(labelText).x;
-                previousLabelExtend = currentLabelX + textExtend + 5;     // remember the total label extend 
-            }
-            
-            cursor = cursor.plus(period);
-        }
+        TimeGridHelper.paintTimeGrid(this, e, start, end,
+                        cursor -> xAxis.getPixelCoordinate(cursor.atStartOfDay(zoneId).toInstant().toEpochMilli()));
     }
 
     private void paintMarkerLines(PaintEvent e) // NOSONAR
@@ -334,7 +273,7 @@ public class TimelineChart extends Chart // NOSONAR
 
         for (MarkerLine marker : markerLines)
         {
-            int x = xAxis.getPixelCoordinate((double) marker.getTimeMillis());
+            int x = xAxis.getPixelCoordinate(marker.getTimeMillis());
 
             String label = marker.label != null ? marker.label : ""; //$NON-NLS-1$
 
@@ -377,7 +316,7 @@ public class TimelineChart extends Chart // NOSONAR
         }
         for (NonTradingDayMarker marker : nonTradingDayMarkers)
         {
-            int x = xAxis.getPixelCoordinate((double) marker.getTimeMillis());
+            int x = xAxis.getPixelCoordinate(marker.getTimeMillis());
             double barWidth = 0;
             for (LocalDate date = marker.date; date.isBefore(end); date = date.plusDays(1))
             {
@@ -415,6 +354,12 @@ public class TimelineChart extends Chart // NOSONAR
         return answer;
     }
 
+    public void resetAxes()
+    {
+        for (IAxis axis : getAxisSet().getAxes())
+            axis.setRange(new Range(0, 1));
+    }
+
     public void adjustRange()
     {
         try
@@ -441,17 +386,25 @@ public class TimelineChart extends Chart // NOSONAR
     {
         return getPlotArea().setFocus();
     }
-    
-    private boolean isLabelable(int currentX, int xMax, int previousLabelExtend)
+
+    public IAxis getOrCreateAxis(Object key, Supplier<IAxis> axisFactory)
     {
-        // allow adding a text label to the vertical line, if 
-        //  a) it is the very first line at the beginning of the chart, or
-        //  b1) the new label fits to the right of the line, not exceeding the x-axis, and
-        //  b2) there is sufficient space between the label of the previous line and this new line
-        
-        if (previousLabelExtend == -1) 
-            return true;
-        
-        return currentX + MIN_LABEL_WIDTH <= xMax && currentX - previousLabelExtend >= 0;
+        return addedAxis.computeIfAbsent(key, x -> {
+            IAxis axis = axisFactory.get();
+
+            // As we are dynamically adding the series, we have to check whether
+            // the updates on the chart are suspended. Otherwise, the layout
+            // information is not available for the axis and then #adjustRange
+            // will fail
+
+            if (isUpdateSuspended())
+            {
+                // resuming updates will trigger #updateLayout
+                suspendUpdate(false);
+                suspendUpdate(true);
+            }
+
+            return axis;
+        });
     }
 }

@@ -4,8 +4,8 @@ import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.List;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
+import jakarta.annotation.PostConstruct;
+import jakarta.inject.Inject;
 
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.e4.core.di.annotations.Optional;
@@ -145,6 +145,7 @@ public class ErrorLogPart
         logViewer.addDoubleClickListener(event -> {
             LogEntry entry = (LogEntry) ((IStructuredSelection) event.getSelection()).getFirstElement();
             DisplayTextDialog dialog = new DisplayTextDialog(Display.getCurrent().getActiveShell(), entry.getText());
+            dialog.setDialogTitle(Messages.LabelErrorProtocolDetails);
             dialog.open();
         });
     }

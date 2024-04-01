@@ -1,7 +1,8 @@
 package name.abuchen.portfolio.datatransfer.pdf;
 
-import static name.abuchen.portfolio.datatransfer.pdf.PDFExtractorUtils.checkAndSetGrossUnit;
+import static name.abuchen.portfolio.datatransfer.ExtractorUtils.checkAndSetGrossUnit;
 
+import name.abuchen.portfolio.datatransfer.ExtrExchangeRate;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.Block;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.DocumentType;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.Transaction;
@@ -18,9 +19,9 @@ public class WeberbankPDFExtractor extends AbstractPDFExtractor
     {
         super(client);
 
-        addBankIdentifier("BLZ 101 201 00"); //$NON-NLS-1$
-        addBankIdentifier("BLZ 10120100"); //$NON-NLS-1$
-        addBankIdentifier("BIC WELADED1WBB"); //$NON-NLS-1$
+        addBankIdentifier("BLZ 101 201 00");
+        addBankIdentifier("BLZ 10120100");
+        addBankIdentifier("BIC WELADED1WBB");
 
         addBuySellTransaction();
         addDividendeTransaction();
@@ -29,7 +30,7 @@ public class WeberbankPDFExtractor extends AbstractPDFExtractor
     @Override
     public String getLabel()
     {
-        return "Weberbank AG"; //$NON-NLS-1$
+        return "Weberbank AG";
     }
 
     private void addBuySellTransaction()
@@ -53,7 +54,7 @@ public class WeberbankPDFExtractor extends AbstractPDFExtractor
                 .section("type").optional()
                 .match("^Wertpapier Abrechnung (?<type>(Kauf|Verkauf)) .*$")
                 .assign((t, v) -> {
-                    if (v.get("type").equals("Verkauf"))
+                    if ("Verkauf".equals(v.get("type")))
                         t.setType(PortfolioTransaction.Type.SELL);
                 })
 
@@ -152,12 +153,13 @@ public class WeberbankPDFExtractor extends AbstractPDFExtractor
                 .match("^Devisenkurs (?<baseCurrency>[\\w]{3}) \\/ (?<termCurrency>[\\w]{3}) (?<exchangeRate>[\\.,\\d]+)$")
                 .match("^Dividendengutschrift (?<fxGross>[\\.,\\d]+) (?<fxCurrency>[\\w]{3}) (?<gross>[\\.,\\d]+)\\+ (?<currency>[\\w]{3})$")
                 .assign((t, v) -> {
-                    type.getCurrentContext().putType(asExchangeRate(v));
+                    ExtrExchangeRate rate = asExchangeRate(v);
+                    type.getCurrentContext().putType(rate);
 
                     Money gross = Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("gross")));
                     Money fxGross = Money.of(asCurrencyCode(v.get("fxCurrency")), asAmount(v.get("fxGross")));
 
-                    checkAndSetGrossUnit(gross, fxGross, t, type);
+                    checkAndSetGrossUnit(gross, fxGross, t, type.getCurrentContext());
                 })
 
                 // Ex-Tag 07.08.2020 Art der Dividende Quartalsdividende
@@ -187,7 +189,7 @@ public class WeberbankPDFExtractor extends AbstractPDFExtractor
 
                 // Einbehaltene Quellensteuer 15 % auf 87,74 USD 11,11- EUR
                 .section("withHoldingTax", "currency").optional()
-                .match("^Einbehaltende Quellensteuer [\\.,\\d]+ % .* (?<withHoldingTax>[\\.,\\d]+)\\- (?<currency>[\\w]{3})$")
+                .match("^Einbehaltene Quellensteuer [\\.,\\d]+ % .* (?<withHoldingTax>[\\.,\\d]+)\\- (?<currency>[\\w]{3})$")
                 .assign((t, v) -> processWithHoldingTaxEntries(t, v, "withHoldingTax", type))
 
                 // Anrechenbare Quellensteuer 15 % auf 74,05 EUR 11,11 EUR

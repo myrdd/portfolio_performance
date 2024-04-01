@@ -1,7 +1,7 @@
 package name.abuchen.portfolio.datatransfer.pdf;
 
-import static name.abuchen.portfolio.datatransfer.pdf.PDFExtractorUtils.checkAndSetFee;
-import static name.abuchen.portfolio.datatransfer.pdf.PDFExtractorUtils.checkAndSetGrossUnit;
+import static name.abuchen.portfolio.datatransfer.ExtractorUtils.checkAndSetFee;
+import static name.abuchen.portfolio.datatransfer.ExtractorUtils.checkAndSetGrossUnit;
 import static name.abuchen.portfolio.util.TextUtil.stripBlanks;
 import static name.abuchen.portfolio.util.TextUtil.trim;
 
@@ -9,9 +9,12 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import name.abuchen.portfolio.datatransfer.DocumentContext;
+import name.abuchen.portfolio.datatransfer.ExtrExchangeRate;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.Block;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.DocumentType;
 import name.abuchen.portfolio.datatransfer.pdf.PDFParser.Transaction;
@@ -26,16 +29,31 @@ import name.abuchen.portfolio.money.Values;
 @SuppressWarnings("nls")
 public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
 {
+    private static final String IS_JOINT_ACCOUNT = "isJointAccount";
+
+    BiConsumer<DocumentContext, String[]> jointAccount = (context, lines) -> {
+        Pattern pJointAccount = Pattern.compile("Anteilige Berechnungsgrundlage .* \\([\\d]{2},[\\d]{2} %\\).*");
+
+        for (String line : lines)
+        {
+            if (pJointAccount.matcher(line).matches())
+            {
+                context.putBoolean(IS_JOINT_ACCOUNT, true);
+                break;
+            }
+        }
+    };
+
     public DZBankGruppePDFExtractor(Client client)
     {
         super(client);
 
-        addBankIdentifier("GLS Bank"); //$NON-NLS-1$
-        addBankIdentifier("Union Investment Service Bank AG"); //$NON-NLS-1$
-        addBankIdentifier("Volksbank"); //$NON-NLS-1$
-        addBankIdentifier("VR-Bank"); //$NON-NLS-1$
-        addBankIdentifier("VRB"); //$NON-NLS-1$
-        addBankIdentifier("Postfach 12 40"); //$NON-NLS-1$
+        addBankIdentifier("GLS Bank");
+        addBankIdentifier("Union Investment Service Bank AG");
+        addBankIdentifier("Volksbank");
+        addBankIdentifier("VR-Bank");
+        addBankIdentifier("VRB");
+        addBankIdentifier("Postfach 12 40");
 
         addBuySellTransaction();
         addDividendeTransaction();
@@ -45,12 +63,12 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
     @Override
     public String getLabel()
     {
-        return "DZ Bank Gruppe (Volksbank/ Union Investment/ VR-Bank/ GLS Bank ...)"; //$NON-NLS-1$
+        return "DZ Bank Gruppe (Volksbank/ Union Investment/ VR-Bank/ GLS Bank ...)";
     }
 
     private void addBuySellTransaction()
     {
-        DocumentType type = new DocumentType("Wertpapier Abrechnung (Kauf|Verkauf)");
+        DocumentType type = new DocumentType("Wertpapier Abrechnung (Kauf|Verkauf)", jointAccount);
         this.addDocumentTyp(type);
 
         Transaction<BuySellEntry> pdfTransaction = new Transaction<>();
@@ -72,7 +90,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                 .section("type").optional()
                 .match("^Wertpapier Abrechnung (?<type>(Kauf|Verkauf)).*$")
                 .assign((t, v) -> {
-                    if (v.get("type").equals("Verkauf"))
+                    if ("Verkauf".equals(v.get("type")))
                         t.setType(PortfolioTransaction.Type.SELL);
                 })
 
@@ -81,7 +99,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                 // Handels-/Ausführungsplatz XETRA (gemäß Weisung)
                 // Kurswert 5.047,65- EUR
                 .section("name", "isin", "wkn", "name1", "currency")
-                .match("^St.ck [\\.,\\d]+ (?<name>.*) (?<isin>[\\w]{12}) \\((?<wkn>.*)\\)$")
+                .match("^St.ck [\\.,\\d]+ (?<name>.*) (?<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \\((?<wkn>[A-Z0-9]{6})\\)$")
                 .match("^(?<name1>.*)$")
                 .match("^Kurswert [\\.,\\d]+(\\-)? (?<currency>[\\w]{3})$")
                 .assign((t, v) -> {
@@ -136,75 +154,127 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
 
     private void addDividendeTransaction()
     {
-        DocumentType type = new DocumentType("(Dividendengutschrift|Aussch.ttung Investmentfonds|Ertragsgutschrift)");
+        DocumentType type = new DocumentType("(Dividendengutschrift" //
+                        + "|Zinsgutschrift" //
+                        + "|Aussch.ttung Investmentfonds" //
+                        + "|Ertragsgutschrift)", jointAccount);
         this.addDocumentTyp(type);
 
-        Block block = new Block("^(Dividendengutschrift|Aussch.ttung Investmentfonds|Ertragsgutschrift .*)$");
-        type.addBlock(block);
-        Transaction<AccountTransaction> pdfTransaction = new Transaction<AccountTransaction>().subject(() -> {
-            AccountTransaction entry = new AccountTransaction();
-            entry.setType(AccountTransaction.Type.DIVIDENDS);
-            return entry;
-        });
+        Transaction<AccountTransaction> pdfTransaction = new Transaction<>();
 
-        pdfTransaction
-                // Stück 17 CD PROJEKT S.A. PLOPTTC00011 (534356)
-                // INHABER-AKTIEN C ZY 1
-                // Zahlbarkeitstag 08.06.2021 Dividende pro Stück 5,00 PLN
-                .section("name", "isin", "wkn", "name1", "currency")
-                .match("^St.ck [\\.,\\d]+ (?<name>.*) (?<isin>[\\w]{12}) \\((?<wkn>.*)\\)$")
-                .match("^(?<name1>.*)$")
-                .match("^.* ((Dividende|Ertrag) ([\\s]+)?pro St.ck|Aussch.ttung pro St\\.) [\\.,\\d]+ (?<currency>[\\w]{3})$")
-                .assign((t, v) -> {
-                    if (!v.get("name1").startsWith("Zahlbarkeitstag"))
-                        v.put("name", trim(v.get("name")) + " " + trim(v.get("name1")));
+        Block firstRelevantLine = new Block("^(Dividendengutschrift" //
+                        + "|Zinsgutschrift" //
+                        + "|Aussch.ttung Investmentfonds" //
+                        + "|Ertragsgutschrift .*)$");
+        type.addBlock(firstRelevantLine);
+        firstRelevantLine.set(pdfTransaction);
 
-                    t.setSecurity(getOrCreateSecurity(v));
-                })
+        pdfTransaction //
 
-                // Stück 17 CD PROJEKT S.A. PLOPTTC00011 (534356)
-                .section("shares")
-                .match("^St.ck (?<shares>[\\.,\\d]+) .*$")
-                .assign((t, v) -> t.setShares(asShares(v.get("shares"))))
+                        .subject(() -> {
+                            AccountTransaction accountTransaction = new AccountTransaction();
+                            accountTransaction.setType(AccountTransaction.Type.DIVIDENDS);
+                            return accountTransaction;
+                        })
 
-                // Den Betrag buchen wir mit Wertstellung 10.06.2021 zu Gunsten des Kontos XXXX (IBAN DE88 4306 0967 1154
-                .section("date")
-                .match("^Den Betrag buchen wir mit Wertstellung (?<date>[\\d]{2}\\.[\\d]{2}\\.[\\d]{4}) .*$")
-                .assign((t, v) -> t.setDateTime(asDate(v.get("date"))))
+                        .oneOf( //
+                                        // @formatter:off
+                                        // Stück 17 CD PROJEKT S.A. PLOPTTC00011 (534356)
+                                        // INHABER-AKTIEN C ZY 1
+                                        // Zahlbarkeitstag 08.06.2021 Dividende pro Stück 5,00 PLN
+                                        // @formatter:on
+                                        section -> section //
+                                                        .attributes("name", "isin", "wkn", "name1", "currency") //
+                                                        .match("^St.ck [\\.,\\d]+ (?<name>.*) (?<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \\((?<wkn>[A-Z0-9]{6})\\)$") //
+                                                        .match("^(?<name1>.*)$") //
+                                                        .match("^.* ((Dividende|Ertrag)([\\s]{1,})pro St.ck|Aussch.ttung pro St\\.) [\\.,\\d]+ (?<currency>[\\w]{3})$") //
+                                                        .assign((t, v) -> {
+                                                            if (!v.get("name1").startsWith("Zahlbarkeitstag"))
+                                                                v.put("name", trim(v.get("name")) + " " + trim(v.get("name1")));
 
-                // Ausmachender Betrag 13,28+ EUR
-                .section("amount", "currency")
-                .match("^Ausmachender Betrag (?<amount>[\\.,\\d]+)\\+ (?<currency>[\\w]{3})$")
-                .assign((t, v) -> {
-                    t.setAmount(asAmount(v.get("amount")));
-                    t.setCurrencyCode(asCurrencyCode(v.get("currency")));
-                })
+                                                            t.setSecurity(getOrCreateSecurity(v));
+                                                        }),
+                                        // @formatter:off
+                                        // EUR 10.000,00 RECONCEPT GREEN ENERGY ASSET B DE000A3MQQJ0 (A3MQQJ)
+                                        // INH.-SCHULDV. 2022(2024/2027)
+                                        // Zahlbarkeitstag 28.12.2023 Zinssatz p. a. 4,25 %
+                                        // @formatter:on
+                                        section -> section //
+                                                        .attributes("currency", "name", "isin", "wkn", "name1") //
+                                                        .match("^(?<currency>[\\w]{3}) [\\.,\\d]+ (?<name>.*) (?<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) \\((?<wkn>[A-Z0-9]{6})\\)$") //
+                                                        .match("^(?<name1>.*)$") //
+                                                        .assign((t, v) -> {
+                                                            if (!v.get("name1").startsWith("Zahlbarkeitstag"))
+                                                                v.put("name", trim(v.get("name")) + " " + trim(v.get("name1")));
 
-                // Devisenkurs EUR / PLN 4,5044
-                // Dividendengutschrift 85,00 PLN 18,87+ EUR
-                .section("baseCurrency", "termCurrency", "exchangeRate", "fxGross", "fxCurrency", "gross", "currency").optional()
-                .match("^Devisenkurs (?<baseCurrency>[\\w]{3}) \\/ (?<termCurrency>[\\w]{3}) ([\\s]+)?(?<exchangeRate>[\\.,\\d]+)$")
-                .match("^(Dividendengutschrift|Aussch.ttung) (?<fxGross>[\\.,\\d]+) (?<fxCurrency>[\\w]{3}) (?<gross>[\\.,\\d]+)\\+ (?<currency>[\\w]{3})")
-                .assign((t, v) -> {
-                    type.getCurrentContext().putType(asExchangeRate(v));
+                                                            t.setSecurity(getOrCreateSecurity(v));
+                                                        }))
 
-                    Money gross = Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("gross")));
-                    Money fxGross = Money.of(asCurrencyCode(v.get("fxCurrency")), asAmount(v.get("fxGross")));
+                        .oneOf( //
+                                        // @formatter:off
+                                        // Stück 17 CD PROJEKT S.A. PLOPTTC00011 (534356)
+                                        // @formatter:on
+                                        section -> section //
+                                                        .attributes("shares") //
+                                                        .match("^St.ck (?<shares>[\\.,\\d]+) .*$") //
+                                                        .assign((t, v) -> t.setShares(asShares(v.get("shares")))),
+                                        // @formatter:off
+                                        // EUR 10.000,00 RECONCEPT GREEN ENERGY ASSET B DE000A3MQQJ0 (A3MQQJ)
+                                        // @formatter:on
+                                        section -> section //
+                                                        .attributes("shares") //
+                                                        .match("^[\\w]{3} (?<shares>[\\.,\\d]+) .* [A-Z]{2}[A-Z0-9]{9}[0-9] \\([A-Z0-9]{6}\\)$") //
+                                                        .assign((t, v) -> {
+                                                            // Percentage quotation, workaround for bonds
+                                                            BigDecimal shares = asBigDecimal(v.get("shares"));
+                                                            t.setShares(Values.Share.factorize(shares.doubleValue() / 100));
+                                                        }))
 
-                    checkAndSetGrossUnit(gross, fxGross, t, type);
-                })
+                        // @formatter:off
+                        // Den Betrag buchen wir mit Wertstellung 10.06.2021 zu Gunsten des Kontos XXXX (IBAN DE88 4306 0967 1154
+                        // @formatter:on
+                        .section("date") //
+                        .match("^Den Betrag buchen wir mit Wertstellung (?<date>[\\d]{2}\\.[\\d]{2}\\.[\\d]{4}).*$") //
+                        .assign((t, v) -> t.setDateTime(asDate(v.get("date"))))
 
-                // Ex-Tag 26.02.2021 Art der Dividende Quartalsdividende
-                .section("note").optional()
-                .match("^.* Art der Dividende (?<note>.*)$")
-                .assign((t, v) -> t.setNote(trim(v.get("note"))))
+                        // @formatter:off
+                        // Ausmachender Betrag 13,28+ EUR
+                        // @formatter:on
+                        .section("amount", "currency") //
+                        .match("^Ausmachender Betrag (?<amount>[\\.,\\d]+)\\+ (?<currency>[\\w]{3})$") //
+                        .assign((t, v) -> {
+                            t.setAmount(asAmount(v.get("amount")));
+                            t.setCurrencyCode(asCurrencyCode(v.get("currency")));
+                        })
 
-                .wrap(TransactionItem::new);
+                        // @formatter:off
+                        // Devisenkurs EUR / PLN 4,5044
+                        // Dividendengutschrift 85,00 PLN 18,87+ EUR
+                        // @formatter:on
+                        .section("baseCurrency", "termCurrency", "exchangeRate", "fxGross", "fxCurrency", "gross", "currency").optional() //
+                        .match("^Devisenkurs (?<baseCurrency>[\\w]{3}) \\/ (?<termCurrency>[\\w]{3}) ([\\s]+)?(?<exchangeRate>[\\.,\\d]+)$") //
+                        .match("^(Dividendengutschrift|Aussch.ttung) (?<fxGross>[\\.,\\d]+) (?<fxCurrency>[\\w]{3}) (?<gross>[\\.,\\d]+)\\+ (?<currency>[\\w]{3})") //
+                        .assign((t, v) -> {
+                            ExtrExchangeRate rate = asExchangeRate(v);
+                            type.getCurrentContext().putType(rate);
+
+                            Money gross = Money.of(asCurrencyCode(v.get("currency")), asAmount(v.get("gross")));
+                            Money fxGross = Money.of(asCurrencyCode(v.get("fxCurrency")), asAmount(v.get("fxGross")));
+
+                            checkAndSetGrossUnit(gross, fxGross, t, type.getCurrentContext());
+                        })
+
+                        // @formatter:off
+                        // Ex-Tag 26.02.2021 Art der Dividende Quartalsdividende
+                        // @formatter:on
+                        .section("note").optional() //
+                        .match("^.* Art der Dividende (?<note>.*)$") //
+                        .assign((t, v) -> t.setNote(trim(v.get("note"))))
+
+                        .wrap(TransactionItem::new);
 
         addTaxesSectionsTransaction(pdfTransaction, type);
         addFeesSectionsTransaction(pdfTransaction, type);
-
-        block.set(pdfTransaction);
     }
 
     public void addDepotStatementTransaction()
@@ -212,48 +282,48 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
         final DocumentType type = new DocumentType("Abrechnung Nr\\. [\\d]+", (context, lines) -> {
             Pattern pAccountingNumber = Pattern.compile("^(?<accountingNumber>Abrechnung Nr\\. [\\d]+)$");
             Pattern pBaseCurrency = Pattern.compile("^.* Preis\\/(?<baseCurrency>[\\w]{3}) .*$");
-            Pattern pNameIsin = Pattern.compile("^(Fonds: )?(?<name>((?!MusterFonds).)*) ISIN: (?<isin>[\\w]{12}) .*$");
+            Pattern pNameIsin = Pattern.compile("^(Fonds: )?(?<name>((?!MusterFonds).)*) ISIN: (?<isin>[A-Z]{2}[A-Z0-9]{9}[0-9]) .*$");
 
             // Set end of line of the securities transaction block
             int endOfLineOfSecurityTransactionBlock = lines.length;
             String baseCurrency = CurrencyUnit.EUR;
 
             // Create security list
-            List<String[]> securityList = new ArrayList<String[]>();
+            List<String[]> securityList = new ArrayList<>();
 
             // Set patter of security names
             String patterOfSecurityNames = "";
 
             for (int i = lines.length - 1; i >= 1; i--)
             {
-                Matcher m1 = pAccountingNumber.matcher(lines[i]);
-                if (m1.matches())
-                    context.put("accountingNumber", m1.group("accountingNumber"));
+                Matcher m = pAccountingNumber.matcher(lines[i]);
+                if (m.matches())
+                    context.put("accountingNumber", m.group("accountingNumber"));
 
-                m1 = pNameIsin.matcher(lines[i]);
-                if (m1.matches())
+                m = pNameIsin.matcher(lines[i]);
+                if (m.matches())
                 {
                     // Search the base currency in the block
                     for (int ii = i; ii < endOfLineOfSecurityTransactionBlock; ii++)
                     {
-                        Matcher m2 = pBaseCurrency.matcher(lines[ii]);
-                        if (m2.matches())
-                            baseCurrency = m2.group("baseCurrency");
+                        Matcher mBaseCurrency = pBaseCurrency.matcher(lines[ii]);
+                        if (mBaseCurrency.matches())
+                            baseCurrency = mBaseCurrency.group("baseCurrency");
                     }
 
                     // @formatter:off
                     // Stringbuilder:
                     // security_(security name)_(currency)_(start@line)_(end@line) = isin
-                    //  
+                    //
                     // Example:
                     // Fonds: PrivatFonds: Kontrolliert pro ISIN: DE000A0RPAN3 Verwaltungsvergütung: 1,55 % p. a.
                     // Buchungs-/ Umsatzart Betrag/EUR Ausgabe- Preis/EUR Anteile
-                    //  
+                    //
                     // Fonds: UniGlobal ISIN: DE0008491051 Verwaltungsvergütung: 1,20 % p. a.
                     // Hinweis: UniProfiRente Altersvorsorgevertrag
                     //  - gefördert -
                     // Buchungs-/ Umsatzart Betrag/EUR Ausgabe- Preis/EUR Anteile
-                    //  
+                    //
                     // Fonds: UniMultiAsset: Exklusiv ISIN: DE000A2H9A01 Verwaltungsvergütung: 0,50 % p. a.
                     // UniMultiAsset: Chance I ISIN: DE000A2H9A19 Verwaltungsvergütung: 0,40 % p. a.
                     // LMGF-L.M.Mart.Cu.Gl.L.T.Uncon. Reg. ISIN: IE00BMDQ4622 Verwaltungsvergütung: 0,40 % p. a.
@@ -261,14 +331,14 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                     if (i != (endOfLineOfSecurityTransactionBlock - 1))
                     {
                         StringBuilder securityListKey = new StringBuilder("security_");
-                        securityListKey.append(trim(m1.group("name"))).append("_");
+                        securityListKey.append(trim(m.group("name"))).append("_");
                         securityListKey.append(baseCurrency).append("_");
                         securityListKey.append(Integer.toString(i + 1)).append("_");
                         securityListKey.append(Integer.toString(((endOfLineOfSecurityTransactionBlock))));
-                        context.put(securityListKey.toString(), m1.group("isin"));
+                        context.put(securityListKey.toString(), m.group("isin"));
 
                         // Add security to securityList
-                        String[] security = {m1.group("isin"), trim(m1.group("name"))};
+                        String[] security = {m.group("isin"), trim(m.group("name"))};
                         securityList.add(security);
                     }
                     else
@@ -288,7 +358,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                         // @formatter:on
 
                         // Add security to securityList
-                        String[] security = {m1.group("isin"), trim(m1.group("name"))};
+                        String[] security = {m.group("isin"), trim(m.group("name"))};
                         securityList.add(security);
                     }
 
@@ -309,11 +379,11 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
 
             // Characters that have to be escaped in regular expressions
             patterOfSecurityNames = patterOfSecurityNames
-                            .replaceAll("\\(", "\\\\(")
-                            .replaceAll("\\)", "\\\\)")
-                            .replaceAll("\\.", "\\\\.")
+                            .replace("(", "\\(")
+                            .replace(")", "\\)")
+                            .replace(".", "\\.")
                             .replaceAll("\\-", "\\\\-")
-                            .replaceAll("\\+", "\\\\+");
+                            .replace("+", "\\+");
 
             for (int i = lines.length - 1; i >= 0; i--)
             {
@@ -321,7 +391,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                 Matcher m = pSearchSecurity.matcher(lines[i]);
                 if (m.matches())
                 {
-                    for (String[] security : securityList) 
+                    for (String[] security : securityList)
                     {
                         if (m.group("name").equals(security[1]))
                         {
@@ -352,12 +422,12 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
         // 18.07.2017
         // 17.07.2017 Kauf 2.125,00
         // Anlage 2.125,00 0,00 148,75 14,286
-        // 
+        //
         // 19.11.2020 Verkauf *1 18.103,67 63,38 -285,637
-        //  
+        //
         // 27.11.2017
         // 2 4.11.2017 Wiederanlage 94,78 0,00 142,61 0,665
-        // 
+        //
         // 01.03.2022 Anlage 4,24 25,5849 0,166
         // @formatter:on
         Transaction<BuySellEntry> pdfTransaction1 = new Transaction<>();
@@ -507,7 +577,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
         // inklusive Solidaritätszuschlag
         // 27.11.2017
         // 2 4.11.2017 Wiederanlage 94,78 0,00 142,61 0,665
-        //  
+        //
         // Ausschüttung *1 362,80
         // abgeführte Kapitalertragsteuer 0,00
         // inklusive Solidaritätszuschlag
@@ -841,22 +911,97 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                 .match("^Finanztransaktionssteuer (?<tax>[\\.,\\d]+)\\- (?<currency>[\\w]{3})$")
                 .assign((t, v) -> processTaxEntries(t, v, type))
 
+                // Kapitalertragsteuer (Account)
                 // Kapitalertragsteuer 25 % auf 7,55 EUR 1,89- EUR
                 // Kapitalertragsteuer 25,00% auf 143,95 EUR 35,99- EUR
                 .section("tax", "currency").optional()
                 .match("^Kapitalertragsteuer [\\.,\\d]+([\\s]+)?% .* (?<tax>[\\.,\\d]+)\\- (?<currency>[\\w]{3})$")
-                .assign((t, v) -> processTaxEntries(t, v, type))
+                .assign((t, v) -> {
+                    if (!type.getCurrentContext().getBoolean(IS_JOINT_ACCOUNT))
+                        processTaxEntries(t, v, type);
+                })
 
+                // Kapitalerstragsteuer (Joint Account)
+                // Kapitalertragsteuer 24,51 % auf 10,69 EUR 2,62- EUR
+                // Kapitalertragsteuer 24,51 % auf 10,69 EUR 2,62- EUR
+                .section("tax1", "currency1", "tax2", "currency2").optional()
+                .match("^Kapitalertragsteuer [\\.,\\d]+([\\s]+)?% .* (?<tax1>[\\.,\\d]+)\\- (?<currency1>[\\w]{3})$")
+                .match("^Kapitalertragsteuer [\\.,\\d]+([\\s]+)?% .* (?<tax2>[\\.,\\d]+)\\- (?<currency2>[\\w]{3})$")
+                .assign((t, v) -> {
+                    if (type.getCurrentContext().getBoolean(IS_JOINT_ACCOUNT))
+                    {
+                        // Account 1
+                        v.put("currency", v.get("currency1"));
+                        v.put("tax", v.get("tax1"));
+                        processTaxEntries(t, v, type);
+
+                        // Account 2
+                        v.put("currency", v.get("currency2"));
+                        v.put("tax", v.get("tax2"));
+                        processTaxEntries(t, v, type);
+                    }
+                })
+
+                // Solidaritätszuschlag (Account)
                 // Solidaritätszuschlag 5,5 % auf 1,89 EUR 0,11- EUR
                 // Solidaritätszuschlag 5,50% auf 35,99 EUR 1,98- EUR
                 .section("tax", "currency").optional()
                 .match("^Solidarit.tszuschlag [\\.,\\d]+([\\s]+)?% .* (?<tax>[\\.,\\d]+)\\- (?<currency>[\\w]{3})$")
-                .assign((t, v) -> processTaxEntries(t, v, type))
+                .assign((t, v) -> {
+                    if (!type.getCurrentContext().getBoolean(IS_JOINT_ACCOUNT))
+                        processTaxEntries(t, v, type);
+                })
 
+                // Solitaritätszuschlag (Joint Account)
+                // Solidaritätszuschlag 5,5 % auf 2,62 EUR 0,14- EUR
+                // Solidaritätszuschlag 5,5 % auf 2,62 EUR 0,14- EUR
+                .section("tax1", "currency1", "tax2", "currency2").optional()
+                .match("^Solidarit.tszuschlag [\\.,\\d]+([\\s]+)?% .* (?<tax1>[\\.,\\d]+)\\- (?<currency1>[\\w]{3})$")
+                .match("^Solidarit.tszuschlag [\\.,\\d]+([\\s]+)?% .* (?<tax2>[\\.,\\d]+)\\- (?<currency2>[\\w]{3})$")
+                .assign((t, v) -> {
+                    if (type.getCurrentContext().getBoolean(IS_JOINT_ACCOUNT))
+                    {
+                        // Account 1
+                        v.put("currency", v.get("currency1"));
+                        v.put("tax", v.get("tax1"));
+                        processTaxEntries(t, v, type);
+
+                        // Account 2
+                        v.put("currency", v.get("currency2"));
+                        v.put("tax", v.get("tax2"));
+                        processTaxEntries(t, v, type);
+                    }
+                })
+
+                // Kirchensteuer (Account)
                 // Kirchensteuer 7 % auf 2,89 EUR 2,11- EUR
                 .section("tax", "currency").optional()
                 .match("^Kirchensteuer [\\.,\\d]+([\\s]+)?% .* (?<tax>[\\d.]+,\\d+)\\- (?<currency>[\\w]{3})$")
-                .assign((t, v) -> processTaxEntries(t, v, type))
+                .assign((t, v) -> {
+                    if (!type.getCurrentContext().getBoolean(IS_JOINT_ACCOUNT))
+                        processTaxEntries(t, v, type);
+                })
+
+                // Kirchensteuer (Joint Account)
+                // Kirchensteuer 8 % auf 2,62 EUR 0,21- EUR
+                // Kirchensteuer 8 % auf 2,62 EUR 0,21- EUR
+                .section("tax1", "currency1", "tax2", "currency2").optional()
+                .match("^Kirchensteuer [\\.,\\d]+([\\s]+)?% .* (?<tax1>[\\d.]+,\\d+)\\- (?<currency1>[\\w]{3})$")
+                .match("^Kirchensteuer [\\.,\\d]+([\\s]+)?% .* (?<tax2>[\\d.]+,\\d+)\\- (?<currency2>[\\w]{3})$")
+                .assign((t, v) -> {
+                    if (type.getCurrentContext().getBoolean(IS_JOINT_ACCOUNT))
+                    {
+                        // Account 1
+                        v.put("currency", v.get("currency1"));
+                        v.put("tax", v.get("tax1"));
+                        processTaxEntries(t, v, type);
+
+                        // Account 2
+                        v.put("currency", v.get("currency2"));
+                        v.put("tax", v.get("tax2"));
+                        processTaxEntries(t, v, type);
+                    }
+                })
 
                 // Einbehaltene Quellensteuer 19 % auf 85,00 PLN 3,59- EUR
                 .section("withHoldingTax", "currency").optional()
@@ -938,7 +1083,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                         Money fee = Money.of(asCurrencyCode(v.get("currency")),
                                         fxFee.setScale(0, Values.MC.getRoundingMode()).longValue());
 
-                        checkAndSetFee(fee, t, type);
+                        checkAndSetFee(fee, t, type.getCurrentContext());
                     }
                 })
 
@@ -963,7 +1108,7 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
                         Money fee = Money.of(asCurrencyCode(v.get("currency")),
                                         fxFee.setScale(0, Values.MC.getRoundingMode()).longValue());
 
-                        checkAndSetFee(fee, t, type);
+                        checkAndSetFee(fee, t, type.getCurrentContext());
                     }
                 });
     }
@@ -972,8 +1117,8 @@ public class DZBankGruppePDFExtractor extends AbstractPDFExtractor
     {
         for (String key : context.keySet())
         {
-            String[] parts = key.split("_"); //$NON-NLS-1$
-            if (parts[0].equalsIgnoreCase("security")) //$NON-NLS-1$
+            String[] parts = key.split("_");
+            if ("security".equalsIgnoreCase(parts[0]))
             {
                 if (startTransactionLine >= Integer.parseInt(parts[3]) && startTransactionLine <= Integer.parseInt(parts[4]))
                 {

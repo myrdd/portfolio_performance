@@ -13,7 +13,7 @@ import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-import javax.inject.Inject;
+import jakarta.inject.Inject;
 
 import org.eclipse.e4.core.di.extensions.Preference;
 import org.eclipse.jface.action.Action;
@@ -78,6 +78,7 @@ import name.abuchen.portfolio.ui.views.columns.IsinColumn;
 import name.abuchen.portfolio.ui.views.columns.NameColumn;
 import name.abuchen.portfolio.ui.views.columns.NameColumn.NameColumnLabelProvider;
 import name.abuchen.portfolio.ui.views.columns.NoteColumn;
+import name.abuchen.portfolio.ui.views.columns.SymbolColumn;
 import name.abuchen.portfolio.util.TextUtil;
 
 /* package */abstract class AbstractNodeTreeViewer extends Page implements ModificationListener
@@ -143,10 +144,10 @@ import name.abuchen.portfolio.util.TextUtil;
             // then also enable the drag and drop of securities into a watchlist
 
             Assignment assignment = nodes.size() == 1 ? nodes.get(0).getAssignment() : null;
-            if (assignment != null && assignment.getInvestmentVehicle() instanceof Security)
+            if (assignment != null && assignment.getInvestmentVehicle() instanceof Security security)
             {
                 List<Security> securities = new ArrayList<>();
-                securities.add((Security) assignment.getInvestmentVehicle());
+                securities.add(security);
                 SecurityTransfer.getTransfer().setSecurities(securities);
             }
             else
@@ -261,10 +262,8 @@ import name.abuchen.portfolio.util.TextUtil;
         @Override
         public boolean validateDrop(Object target, int operation, TransferData transferType)
         {
-            if (!(target instanceof TaxonomyNode))
+            if (!(target instanceof TaxonomyNode targetNode))
                 return false;
-
-            TaxonomyNode targetNode = (TaxonomyNode) target;
 
             int location = determineLocation(this.getCurrentEvent());
 
@@ -507,6 +506,11 @@ import name.abuchen.portfolio.util.TextUtil;
         new StringEditingSupport(TaxonomyNode.class, "key") //$NON-NLS-1$
                         .setMandatory(false).setCanEditCheck(n -> (((TaxonomyNode) n).isClassification()))
                         .addListener(this).attachTo(column);
+        column.setSorter(null);
+        column.setVisible(false);
+        support.addColumn(column);
+
+        column = new SymbolColumn();
         column.setSorter(null);
         column.setVisible(false);
         support.addColumn(column);
@@ -1005,7 +1009,7 @@ import name.abuchen.portfolio.util.TextUtil;
             if (byType && !node1.isClassification() && node2.isClassification())
                 return 1;
 
-            return node1.getName().compareToIgnoreCase(node2.getName());
+            return TextUtil.compare(node1.getName(), node2.getName());
         });
 
         int rank = 0;

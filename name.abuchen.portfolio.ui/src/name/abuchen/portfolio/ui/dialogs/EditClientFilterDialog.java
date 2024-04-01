@@ -16,18 +16,26 @@ import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.jface.layout.GridDataFactory;
 import org.eclipse.jface.layout.TreeColumnLayout;
 import org.eclipse.jface.preference.IPreferenceStore;
+import org.eclipse.jface.util.LocalSelectionTransfer;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ColumnViewerToolTipSupport;
 import org.eclipse.jface.viewers.ColumnWeightData;
+import org.eclipse.jface.viewers.IStructuredSelection;
 import org.eclipse.jface.viewers.ITreeContentProvider;
 import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.jface.viewers.TreePath;
 import org.eclipse.jface.viewers.TreeSelection;
 import org.eclipse.jface.viewers.TreeViewer;
 import org.eclipse.jface.viewers.Viewer;
+import org.eclipse.jface.viewers.ViewerDropAdapter;
 import org.eclipse.jface.window.ToolTip;
 import org.eclipse.jface.window.Window;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.dnd.DND;
+import org.eclipse.swt.dnd.DragSourceAdapter;
+import org.eclipse.swt.dnd.DragSourceEvent;
+import org.eclipse.swt.dnd.Transfer;
+import org.eclipse.swt.dnd.TransferData;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Control;
@@ -80,9 +88,8 @@ public class EditClientFilterDialog extends Dialog
         @Override
         public Object[] getChildren(Object parentElement)
         {
-            if (parentElement instanceof ClientFilterMenu.Item)
+            if (parentElement instanceof ClientFilterMenu.Item item)
             {
-                ClientFilterMenu.Item item = (ClientFilterMenu.Item) parentElement;
                 String[] uuids = item.getUUIDs().split(","); //$NON-NLS-1$
 
                 return Arrays.stream(uuids).map(uuid2object::get).filter(Objects::nonNull).toArray();
@@ -190,6 +197,8 @@ public class EditClientFilterDialog extends Dialog
         treeViewer.setContentProvider(new ContentProvider(client));
         treeViewer.setInput(items);
 
+        setupDnD();
+
         new ContextMenu(treeViewer.getTree(), this::fillContextMenu).hook();
 
         Label info = new Label(container, SWT.NONE);
@@ -198,9 +207,74 @@ public class EditClientFilterDialog extends Dialog
         return container;
     }
 
+    private void setupDnD()
+    {
+        Transfer[] types = new Transfer[] { LocalSelectionTransfer.getTransfer() };
+        treeViewer.addDragSupport(DND.DROP_MOVE, types, new DragSourceAdapter()
+        {
+            @Override
+            public void dragStart(DragSourceEvent event)
+            {
+                // only allow dragging of filters
+                IStructuredSelection selection = (IStructuredSelection) treeViewer.getSelection();
+                event.doit = selection.size() == 1 && selection.getFirstElement() instanceof ClientFilterMenu.Item;
+            }
+
+            @Override
+            public void dragSetData(DragSourceEvent event)
+            {
+                IStructuredSelection selection = (IStructuredSelection) treeViewer.getSelection();
+                LocalSelectionTransfer.getTransfer().setSelection(selection);
+                LocalSelectionTransfer.getTransfer().setSelectionSetTime(event.time & 0xFFFFFFFFL);
+            }
+        });
+
+        treeViewer.addDropSupport(DND.DROP_MOVE, types, new ViewerDropAdapter(treeViewer)
+        {
+            @Override
+            public boolean validateDrop(Object target, int operation, TransferData transferType)
+            {
+                return target instanceof ClientFilterMenu.Item;
+            }
+
+            @Override
+            public boolean performDrop(Object data)
+            {
+                IStructuredSelection selection = (IStructuredSelection) data;
+
+                List<ClientFilterMenu.Item> movedItems = new ArrayList<>();
+                for (Object o : selection.toList())
+                    movedItems.add((ClientFilterMenu.Item) o);
+
+                items.removeAll(movedItems);
+
+                Object destination = getCurrentTarget();
+                int index = items.indexOf(destination);
+                if (index >= 0)
+                {
+
+                    int location = getCurrentLocation();
+                    if (location == ViewerDropAdapter.LOCATION_ON || location == ViewerDropAdapter.LOCATION_AFTER)
+                        index++;
+
+                    items.addAll(index, movedItems);
+                }
+                else
+                {
+                    items.addAll(movedItems);
+                }
+
+                treeViewer.refresh();
+
+                return true;
+            }
+        });
+    }
+
     private void fillContextMenu(IMenuManager manager)
     {
-        if (treeViewer.getStructuredSelection().getFirstElement() instanceof ClientFilterMenu.Item)
+        if (treeViewer.getStructuredSelection()
+                        .getFirstElement() instanceof ClientFilterMenu.Item selectedFilterElement)
         {
             // insert new sub element (child) to filter
             manager.add(new Action(Messages.MenuReportingPeriodInsert)
@@ -208,8 +282,6 @@ public class EditClientFilterDialog extends Dialog
                 @Override
                 public void run()
                 {
-                    ClientFilterMenu.Item selectedFilterElement = (ClientFilterMenu.Item) treeViewer
-                                    .getStructuredSelection().getFirstElement();
                     if (!(selectedFilterElement.getFilter() instanceof PortfolioClientFilter))
                         return;
 
@@ -290,10 +362,9 @@ public class EditClientFilterDialog extends Dialog
                         {
                             // child node clicked (portfolio or account)
                             items.forEach(it -> {
-                                if (it == p.getFirstSegment() && it.getFilter() instanceof PortfolioClientFilter)
+                                if (it == p.getFirstSegment() && it.getFilter() instanceof PortfolioClientFilter filter)
                                 { // found parent item --> now remove selected
                                   // child item
-                                    PortfolioClientFilter filter = (PortfolioClientFilter) it.getFilter();
                                     filter.removeElement(p.getLastSegment());
 
                                     // important step: update UUIDs because this

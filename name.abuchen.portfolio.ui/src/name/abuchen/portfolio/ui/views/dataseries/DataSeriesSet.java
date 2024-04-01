@@ -1,9 +1,7 @@
 package name.abuchen.portfolio.ui.views.dataseries;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.swt.SWT;
@@ -99,8 +97,13 @@ public class DataSeriesSet
                         Messages.LabelAbsoluteDelta, Display.getDefault().getSystemColor(SWT.COLOR_GRAY).getRGB());
         availableSeries.add(series);
 
-        series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.TAXES, Messages.LabelAccumulatedTaxes,
+        series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.TAXES, Messages.ColumnTaxes,
                         Display.getDefault().getSystemColor(SWT.COLOR_RED).getRGB());
+        series.setLineChart(false);
+        availableSeries.add(series);
+
+        series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.TAXES_ACCUMULATED,
+                        Messages.LabelAccumulatedTaxes, Display.getDefault().getSystemColor(SWT.COLOR_RED).getRGB());
         availableSeries.add(series);
 
         series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.DIVIDENDS, Messages.LabelDividends,
@@ -140,6 +143,14 @@ public class DataSeriesSet
                         Messages.LabelAccumulatedEarnings, Colors.DARK_GREEN.getRGB());
         availableSeries.add(series);
 
+        series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.FEES, Messages.LabelFees,
+                        Colors.GRAY.getRGB());
+        series.setLineChart(false);
+        availableSeries.add(series);
+
+        series = new DataSeries(DataSeries.Type.CLIENT, ClientDataSeries.FEES_ACCUMULATED,
+                        Messages.LabelFeesAccumulated, Colors.GRAY.getRGB());
+        availableSeries.add(series);
     }
 
     private void buildPerformanceDataSeries(Client client, IPreferenceStore preferences, ColorWheel wheel)
@@ -188,21 +199,22 @@ public class DataSeriesSet
     private void buildPreTaxDataSeries(Client client, IPreferenceStore preferences, ColorWheel wheel)
     {
         availableSeries.add(new DataSeries(DataSeries.Type.CLIENT_PRETAX, ClientDataSeries.TOTALS,
-                        Messages.PerformanceChartLabelEntirePortfolio + Messages.LabelSuffix_PreTax, wheel.next()));
+                        Messages.PerformanceChartLabelEntirePortfolio + " " + Messages.LabelSuffix_PreTax, //$NON-NLS-1$
+                        wheel.next()));
 
         for (Portfolio portfolio : client.getPortfolios())
             availableSeries.add(new DataSeries(DataSeries.Type.PORTFOLIO_PRETAX, portfolio,
-                            portfolio.getName() + Messages.LabelSuffix_PreTax, wheel.next()));
+                            portfolio.getName() + " " + Messages.LabelSuffix_PreTax, wheel.next())); //$NON-NLS-1$
 
         for (Portfolio portfolio : client.getPortfolios())
             availableSeries.add(new DataSeries(DataSeries.Type.PORTFOLIO_PLUS_ACCOUNT_PRETAX, portfolio,
                             portfolio.getName() + " + " + portfolio.getReferenceAccount().getName() //$NON-NLS-1$
-                                            + Messages.LabelSuffix_PreTax,
+                                            + " " + Messages.LabelSuffix_PreTax, //$NON-NLS-1$
                             wheel.next()));
 
         for (Account account : client.getAccounts())
             availableSeries.add(new DataSeries(DataSeries.Type.ACCOUNT_PRETAX, account,
-                            account.getName() + Messages.LabelSuffix_PreTax, wheel.next()));
+                            account.getName() + " " + Messages.LabelSuffix_PreTax, wheel.next())); //$NON-NLS-1$
 
         addCustomClientFilters(client, preferences, true, wheel);
     }
@@ -212,18 +224,13 @@ public class DataSeriesSet
         // custom client filters
         ClientFilterMenu menu = new ClientFilterMenu(client, preferences);
 
-        // quick fix: users can create duplicate client filters that end up to
-        // have the same UUID. Avoid adding both violates the precondition that
-        // every data series must have a unique id
-        Set<String> addedSeries = new HashSet<>();
         for (ClientFilterMenu.Item item : menu.getCustomItems())
         {
             DataSeries series = new DataSeries(
                             isPreTax ? DataSeries.Type.CLIENT_FILTER_PRETAX : DataSeries.Type.CLIENT_FILTER, item,
-                            isPreTax ? item.getLabel() + Messages.LabelSuffix_PreTax : item.getLabel(), wheel.next());
-
-            if (addedSeries.add(series.getUUID()))
-                availableSeries.add(series);
+                            isPreTax ? item.getLabel() + " " + Messages.LabelSuffix_PreTax : item.getLabel(), //$NON-NLS-1$
+                            wheel.next());
+            availableSeries.add(series);
         }
     }
 

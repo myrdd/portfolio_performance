@@ -7,10 +7,11 @@ import java.util.List;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-import javax.inject.Inject;
-import javax.inject.Named;
+import jakarta.inject.Inject;
+import jakarta.inject.Named;
 
 import org.eclipse.e4.core.di.annotations.Optional;
+import org.eclipse.e4.ui.di.UIEventTopic;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.ControlContribution;
 import org.eclipse.jface.action.IAction;
@@ -21,7 +22,6 @@ import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.dialogs.Dialog;
 import org.eclipse.jface.preference.IPreferenceStore;
 import org.eclipse.jface.viewers.IStructuredSelection;
-import org.eclipse.jface.viewers.LabelProvider;
 import org.eclipse.jface.viewers.StructuredSelection;
 import org.eclipse.jface.viewers.Viewer;
 import org.eclipse.jface.viewers.ViewerFilter;
@@ -35,22 +35,23 @@ import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.Text;
 
+import name.abuchen.portfolio.events.ChangeEventConstants;
+import name.abuchen.portfolio.events.SecurityCreatedEvent;
 import name.abuchen.portfolio.model.Client;
-import name.abuchen.portfolio.model.Exchange;
 import name.abuchen.portfolio.model.LimitPrice;
 import name.abuchen.portfolio.model.PortfolioTransaction;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.model.SecurityPrice;
 import name.abuchen.portfolio.model.Watchlist;
 import name.abuchen.portfolio.online.QuoteFeed;
-import name.abuchen.portfolio.online.impl.EurostatHICPQuoteFeed;
 import name.abuchen.portfolio.ui.Images;
 import name.abuchen.portfolio.ui.Messages;
 import name.abuchen.portfolio.ui.UIConstants;
-import name.abuchen.portfolio.ui.dialogs.ListSelectionDialog;
 import name.abuchen.portfolio.ui.editor.AbstractFinanceView;
+import name.abuchen.portfolio.ui.editor.DomainElement;
 import name.abuchen.portfolio.ui.selection.SecuritySelection;
 import name.abuchen.portfolio.ui.selection.SelectionService;
+import name.abuchen.portfolio.ui.util.CommandAction;
 import name.abuchen.portfolio.ui.util.DropDown;
 import name.abuchen.portfolio.ui.util.SimpleAction;
 import name.abuchen.portfolio.ui.util.TableViewerCSVExporter;
@@ -63,8 +64,6 @@ import name.abuchen.portfolio.ui.views.panes.TradesPane;
 import name.abuchen.portfolio.ui.views.panes.TransactionsPane;
 import name.abuchen.portfolio.ui.wizards.datatransfer.CSVImportWizard;
 import name.abuchen.portfolio.ui.wizards.security.EditSecurityDialog;
-import name.abuchen.portfolio.ui.wizards.security.SearchSecurityWizardDialog;
-import name.abuchen.portfolio.util.TradeCalendarManager;
 
 public class SecurityListView extends AbstractFinanceView
 {
@@ -79,53 +78,21 @@ public class SecurityListView extends AbstractFinanceView
         @Override
         public void menuAboutToShow(IMenuManager manager)
         {
-            manager.add(new SimpleAction(Messages.SecurityMenuNewSecurity, a -> {
-                SearchSecurityWizardDialog dialog = new SearchSecurityWizardDialog(
-                                Display.getDefault().getActiveShell(), SecurityListView.this,
-                                SecurityListView.this.watchlist, getClient());
-                if (dialog.open() == Window.OK)
-                    openEditDialog(dialog.getSecurity());
-            }));
+            manager.add(CommandAction.forCommand(getContext(), DomainElement.INVESTMENT_VEHICLE.getPaletteLabel(),
+                            UIConstants.Command.NEW_DOMAIN_ELEMENT, UIConstants.Parameter.TYPE,
+                            DomainElement.INVESTMENT_VEHICLE.name()));
 
-            manager.add(new SimpleAction(Messages.SecurityMenuNewExchangeRate, a -> {
-                Security newSecurity = new Security();
-                newSecurity.setFeed(QuoteFeed.MANUAL);
-                newSecurity.setCurrencyCode(getClient().getBaseCurrency());
-                newSecurity.setTargetCurrencyCode(getClient().getBaseCurrency());
-                openEditDialog(newSecurity);
-            }));
+            manager.add(CommandAction.forCommand(getContext(), DomainElement.CRYPTO_CURRENCY.getPaletteLabel(),
+                            UIConstants.Command.NEW_DOMAIN_ELEMENT, UIConstants.Parameter.TYPE,
+                            DomainElement.CRYPTO_CURRENCY.name()));
 
-            manager.add(new SimpleAction(Messages.SecurityMenuNewHICP, a -> {
+            manager.add(CommandAction.forCommand(getContext(), DomainElement.EXCHANGE_RATE.getPaletteLabel(),
+                            UIConstants.Command.NEW_DOMAIN_ELEMENT, UIConstants.Parameter.TYPE,
+                            DomainElement.EXCHANGE_RATE.name()));
 
-                LabelProvider labelProvider = LabelProvider.createTextProvider(o -> ((Exchange) o).getName());
-                ListSelectionDialog dialog = new ListSelectionDialog(Display.getDefault().getActiveShell(),
-                                labelProvider);
-
-                dialog.setTitle(Messages.SecurityMenuNewHICP);
-                dialog.setMessage(Messages.SecurityMenuHICPMessage);
-                dialog.setElements(new EurostatHICPQuoteFeed().getExchanges(new Security(), new ArrayList<>()));
-
-                if (dialog.open() == Window.OK)
-                {
-                    Object[] result = dialog.getResult();
-
-                    for (Object object : result)
-                    {
-                        Exchange region = (Exchange) object;
-
-                        Security newSecurity = new Security();
-                        newSecurity.setFeed(EurostatHICPQuoteFeed.ID);
-                        newSecurity.setLatestFeed(QuoteFeed.MANUAL);
-                        newSecurity.setCurrencyCode(null);
-                        newSecurity.setTickerSymbol(region.getId());
-                        newSecurity.setName(region.getName() + Messages.LabelSuffix_HICP);
-                        newSecurity.setCalendar(TradeCalendarManager.FIRST_OF_THE_MONTH_CODE);
-
-                        addNewSecurity(newSecurity);
-                    }
-                }
-
-            }));
+            manager.add(CommandAction.forCommand(getContext(), DomainElement.CONSUMER_PRICE_INDEX.getPaletteLabel(),
+                            UIConstants.Command.NEW_DOMAIN_ELEMENT, UIConstants.Parameter.TYPE,
+                            DomainElement.CONSUMER_PRICE_INDEX.name()));
 
             manager.add(new Separator());
 
@@ -137,7 +104,7 @@ public class SecurityListView extends AbstractFinanceView
                     FileDialog fileDialog = new FileDialog(Display.getDefault().getActiveShell(), SWT.OPEN);
                     fileDialog.setFilterNames(
                                     new String[] { Messages.CSVImportLabelFileCSV, Messages.CSVImportLabelFileAll });
-                    fileDialog.setFilterExtensions(new String[] { "*.csv", "*.*" }); //$NON-NLS-1$ //$NON-NLS-2$
+                    fileDialog.setFilterExtensions(new String[] { "*.csv;*.CSV", "*.*" }); //$NON-NLS-1$ //$NON-NLS-2$
                     String fileName = fileDialog.open();
 
                     if (fileName == null)
@@ -162,7 +129,7 @@ public class SecurityListView extends AbstractFinanceView
             manager.add(new Separator());
 
             manager.add(new SimpleAction(Messages.SecurityMenuEmptyInstrument + "...", a -> { //$NON-NLS-1$
-                Security newSecurity = new Security();
+                Security newSecurity = new Security(null, getClient().getBaseCurrency());
                 newSecurity.setFeed(QuoteFeed.MANUAL);
                 newSecurity.setCurrencyCode(getClient().getBaseCurrency());
                 openEditDialog(newSecurity);
@@ -183,7 +150,7 @@ public class SecurityListView extends AbstractFinanceView
             getClient().addSecurity(newSecurity);
 
             if (watchlist != null)
-                watchlist.getSecurities().add(newSecurity);
+                watchlist.addSecurity(newSecurity);
 
             markDirty();
 
@@ -296,10 +263,8 @@ public class SecurityListView extends AbstractFinanceView
         {
             for (Object attribute : security.getAttributes().getMap().values())
             {
-                if (!(attribute instanceof LimitPrice))
+                if (!(attribute instanceof LimitPrice limit))
                     continue;
-
-                LimitPrice limit = (LimitPrice) attribute;
 
                 SecurityPrice latest = security.getSecurityPrice(LocalDate.now());
                 if (latest != null && limit.isExceeded(latest))
@@ -414,6 +379,23 @@ public class SecurityListView extends AbstractFinanceView
         this.adhocFilter = adhocFilter;
     }
 
+    @Inject
+    @Optional
+    public void onSecurityCreated(@UIEventTopic(ChangeEventConstants.Security.CREATED) SecurityCreatedEvent event)
+    {
+        if (!event.appliesTo(getClient()))
+            return; // if security was created by other client, ignore event
+
+        if (watchlist != null)
+        {
+            watchlist.addSecurity(event.getSecurity());
+            getClient().touch();
+        }
+
+        setSecurityTableInput();
+        securities.getTableViewer().setSelection(new StructuredSelection(event.getSecurity()), true);
+    }
+
     @Override
     protected void addButtons(ToolBarManager toolBar)
     {
@@ -449,7 +431,7 @@ public class SecurityListView extends AbstractFinanceView
                     }
                     else
                     {
-                        filterPattern = Pattern.compile(".*" + filterText + ".*", Pattern.CASE_INSENSITIVE); //$NON-NLS-1$ //$NON-NLS-2$
+                        filterPattern = Pattern.compile(".*" + filterText + ".*", Pattern.CASE_INSENSITIVE | Pattern.DOTALL); //$NON-NLS-1$ //$NON-NLS-2$
                         securities.refresh(false);
                     }
                 });

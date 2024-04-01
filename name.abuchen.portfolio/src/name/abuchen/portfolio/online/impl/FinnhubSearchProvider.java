@@ -12,7 +12,7 @@ import org.json.simple.JSONValue;
 
 import name.abuchen.portfolio.Messages;
 import name.abuchen.portfolio.PortfolioLog;
-import name.abuchen.portfolio.model.ClientSettings;
+import name.abuchen.portfolio.model.Client;
 import name.abuchen.portfolio.model.Security;
 import name.abuchen.portfolio.online.SecuritySearchProvider;
 import name.abuchen.portfolio.util.WebAccess;
@@ -30,7 +30,6 @@ public class FinnhubSearchProvider implements SecuritySearchProvider
         private String symbol;
         private String description;
         private String type;
-        private String displaySymbol;
 
         public static Optional<Result> from(JSONObject json)
         {
@@ -42,18 +41,14 @@ public class FinnhubSearchProvider implements SecuritySearchProvider
 
             Object type = json.get("type"); //$NON-NLS-1$
 
-            Object displaySymbol = json.get("displaySymbol"); //$NON-NLS-1$
-
-            return Optional.of(new Result(String.valueOf(symbol), String.valueOf(description), String.valueOf(type),
-                            String.valueOf(displaySymbol)));
+            return Optional.of(new Result(String.valueOf(symbol), String.valueOf(description), String.valueOf(type)));
         }
 
-        private Result(String symbol, String description, String type, String displaySymbol)
+        private Result(String symbol, String description, String type)
         {
             this.symbol = symbol;
             this.description = description;
             this.type = type;
-            this.displaySymbol = displaySymbol;
         }
 
         /* package */ Result(String description)
@@ -96,11 +91,17 @@ public class FinnhubSearchProvider implements SecuritySearchProvider
         {
             return null;
         }
+        
+        @Override
+        public String getSource()
+        {
+            return NAME;
+        }
 
         @Override
-        public Security create(ClientSettings settings)
+        public Security create(Client client)
         {
-            Security security = new Security();
+            Security security = new Security(description, client.getBaseCurrency());
             security.setName(description);
             security.setTickerSymbol(symbol);
             security.setFeed(FinnhubQuoteFeed.ID);
@@ -108,12 +109,13 @@ public class FinnhubSearchProvider implements SecuritySearchProvider
         }
     }
 
+    private static final String NAME = "Finnhub"; //$NON-NLS-1$
     private String apiKey;
 
     @Override
     public String getName()
     {
-        return "Finnhub"; //$NON-NLS-1$
+        return NAME;
     }
 
     public void setApiKey(String apiKey)

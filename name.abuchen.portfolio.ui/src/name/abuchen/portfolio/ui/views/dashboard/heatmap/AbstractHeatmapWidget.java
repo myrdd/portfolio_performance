@@ -30,8 +30,8 @@ import name.abuchen.portfolio.util.TextUtil;
 
 public abstract class AbstractHeatmapWidget<N extends Number> extends WidgetDelegate<HeatmapModel<N>>
 {
-    private Composite table;
-    private Label title;
+    protected Composite table;
+    protected Label title;
     private DashboardResources resources;
 
     public AbstractHeatmapWidget(Widget widget, DashboardData data)
@@ -122,7 +122,7 @@ public abstract class AbstractHeatmapWidget<N extends Number> extends WidgetDele
 
         model.getHeader().forEach(header -> {
             CLabel l = new CLabel(table, SWT.CENTER);
-            l.setText(header.getLabel());
+            l.setText(TextUtil.tooltip(header.getLabel()));
             l.setBackground(table.getBackground());
 
             InfoToolTip.attach(l, header.getToolTip() != null ? header.getToolTip() : header.getLabel());
@@ -159,11 +159,11 @@ public abstract class AbstractHeatmapWidget<N extends Number> extends WidgetDele
     {
         TextStyle textStyle;
         if (numDashboardColumns == 1)
-            textStyle = TextStyle.FULL;
+            textStyle = TextStyle.FULL_STANDALONE;
         else if (numDashboardColumns == 2)
-            textStyle = TextStyle.SHORT;
+            textStyle = TextStyle.SHORT_STANDALONE;
         else
-            textStyle = TextStyle.NARROW;
+            textStyle = TextStyle.NARROW_STANDALONE;
 
         // no harm in hardcoding the year as each year has the same months
         for (LocalDate m = LocalDate.of(2016, 1, 1); m.getYear() == 2016; m = m.plusMonths(1))
@@ -173,7 +173,7 @@ public abstract class AbstractHeatmapWidget<N extends Number> extends WidgetDele
         if (showStandardDeviation)
             model.addHeader("s", HeatmapOrnament.STANDARD_DEVIATION.toString()); //$NON-NLS-1$
         if (showAverage)
-            model.addHeader("\u2300", EarningsHeatmapWidget.Average.AVERAGE.toString()); //$NON-NLS-1$
+            model.addHeader("\u2300", Average.AVERAGE.toString()); //$NON-NLS-1$
     }
 
     protected Double geometricMean(List<Double> values)
