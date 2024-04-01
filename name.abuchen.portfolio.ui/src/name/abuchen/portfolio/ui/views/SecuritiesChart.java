@@ -1014,8 +1014,8 @@ public class SecuritiesChart
             else
                 yAxis3rd.getGrid().setStyle(LineStyle.NONE);
 
-            boolean shouldShowCurrencyCode = true;
-            // boolean shouldShowCurrencyCode = security.getCurrencyCode() != client.getBaseCurrency();
+            boolean shouldShowCurrencyCode = security.getCurrencyCode() != null;
+                                          // && security.getCurrencyCode() != client.getBaseCurrency();
             if (shouldShowCurrencyCode)
                 yAxis1st.getTitle().setText("[" + getChartCurrency() + "]");
             yAxis1st.getTitle().setVisible(shouldShowCurrencyCode);
